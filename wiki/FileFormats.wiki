@@ -1,4 +1,4 @@
-#summary various file formats for intermediate and final key storage
+#summary Various file formats for intermediate and final key storage
 
 = Introduction =
 
