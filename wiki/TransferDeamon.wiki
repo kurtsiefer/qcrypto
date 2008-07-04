@@ -1,4 +1,4 @@
-#Functionality of the classical communication endpoint
+#summary Functionality of the classical communication endpoint
 
 = Introduction =
 
