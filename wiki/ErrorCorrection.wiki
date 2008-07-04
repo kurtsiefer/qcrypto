@@ -1,0 +1,13 @@
+#summary Our implementation of modified CASCADE error correction
+
+= Introduction =
+
+Error correction is done anynchronously with acquisition of raw key. The same code runs on both machines and eceives instructions via a command socket.  More doc to follow.
+
+
+= Details =
+
+Add your content here.  Format your content with:
+  * Text in *bold* or _italic_
+  * Headings, paragraphs, and lists
+  * Automatic links to other wiki pages
