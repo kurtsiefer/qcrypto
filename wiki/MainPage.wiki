@@ -1,0 +1,22 @@
+#summary One-sentence summary of this page.
+
+= Introduction =
+
+This is the repository for the source code used in quantum key distribution, from key generation in from time-stamped data to error correction and privacy amplification.
+
+The code was designed to work with entanglement-based pair detection schemes, either implementing a BB84-type protocol, or an Ekert-91 protocol, which we (Centre for Quantum Technologies at the National University of Singapore) used for our implementations.
+
+The code is mostly ANSI C, typically compiled with current (2007) gcc versions.
+
+Discussions on implementation details/problems/leaks are highly welcome, and should ultimately lead to an openly available implementation of a QKD scheme which hopefully has less open security problems than implementations using proprietary code.
+
+In an initial phase, we will deposit code which has been running on specific linux systems in our labs, and definitions of file formats and hardware.
+
+(to come: link to experiments, references, hardware description, circuits)
+
+
+= Details =
+
+I need still to generate a nice svn directory for the different parts of the code. Currently,  everything is contained in one big tarball, and located off site [http://137.132.69.206/cryptoplay http://137.132.69.206/cryptoplay].
+
+Christian
