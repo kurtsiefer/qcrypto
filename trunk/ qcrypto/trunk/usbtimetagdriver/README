@@ -1,0 +1,133 @@
+This directory contains the usb driver for the timestamp card, some
+installation scripts and testing software for that driver.
+
+directory content
+
+2.6/      directory containing the kernel driver and corresponding support
+	  files. In particular, the usbtimetagio.h contains the ioctl
+	  definitions needed for any application talking to the device.
+
+hotplug/  directory containing the sources for the hotplugging methods.
+	  Depending on the distribution, different USB hotplugging scenarios
+	  are followed. At the moment, I don't know how to identify the OS
+	  distribution version in a reasonable way.
+
+desginstuff/ contains some random thoughts which came up during the driver
+	     design. 
+	  
+testapps/ stuff used to test various firmeware and driver evolution stages
+
+Makefile  Script to do what you most likely want to do with these files
+
+
+Installation:
+
+Before you start to install or compile anything, make sure the directory is
+located in a reasonably stable place, and that this directory is not very
+likely to removed to any other place as the driver will be loaded from
+hotplugging out of this directory structure. Here, this directory should
+reside in /home/qitlab/programs/.
+
+Then, you have to compile the driver itself. Remember that for the moment,
+there is only a port for a 2.6 kernel, and no backport for the 2.4 machines
+(not sure I want to do this anyway). The compilation is done from themain
+driver directory by saying
+
+        make
+
+Then, the hotplugging machinery needs to be installed. There are two different
+versions for this mechanism, depending on the distribution the machine runs
+on. SuSE 10.0 uses the newer udev method, which is a generalized driver
+insertion and dynamic device generation tool. SuSE 9.3 uses the somewhat older
+but seemingly more common /etc/hottplug.d mechanism. Most likely other
+versions work as well, but these are the only ones I tested.  Explanation of
+the details see further down. 
+
+So, you first need to find out what distribution you have. Then, become
+superuser as the normal user cannot install the hotplugging rules.
+
+For SuSE 9.3, you install the hotplugging stuff by saying
+    
+      make hotplugd
+
+This installs a loader script into /etc/hotplug.d/usb/ with the correct
+pathname for the device driver
+
+For SuSE 10.0, you install the hotplugging stuff with the command
+
+    make udev
+
+This installs a udev rule file and a device driver loader into the directory
+/etc/udev/rules.d/ of a unified hotplugging mechanism used in this
+distribution.
+
+
+By now, everything should be done. You can check the success of the endeavour
+by plugging in a device and looking for a newly created device file
+/dev/ioboards/timestamp0.
+
+
+Driver idea:
+
+The driver itself looks for a device with the Cypress Vendor ID, and the
+device ID 0x1234 (This is probably not a very smart choice, but USB.org
+charges 4kUS/yr for a real number....)
+The connection to the usb device is via endpoint 0, where a set of control
+commands are transmitted for various device control commands for RF src
+choice, treshld adjustment, autotransmit etc. Some service commands lead to
+data sent back via EP1, but they are not relevant for the card operation.
+
+The bulk of the communication from the timestamp card to the driver takes
+place via EP2, which is operated as a bulk EP bypassing the microcontroller on
+the timestamp and talking to the event FIFO directly. The transfer should be
+limited either by the bandwidth of the USB connection, or at the momentary
+handshake state engine design to 4.2 Mevents per second of 8 bytes each.
+
+The bulk data gets transferred into a kernel buffer consisting of a reasonably
+large size, which is memory mapped into the user space to avoid needless
+copying of data for further processing.
+
+The driver should be able to handle multiple cards, although I never tried. It
+uses dynamic device minor allocation, and currently is part of the usbdevice
+family. An attempt to come up with a dynamic major number and not piggyback on
+the usb device unit lead to  hotplugging problems with the udev mechanism I
+could not sort out.
+
+It communicates with the end user via a single device file, and there mainly
+using the ioctl() methods for device control, and a buffer mapped into user
+space using mmap(). Internally, the buffer is a hand-knitted scatter-gather
+buffer list of free RAM pages, which in a future driver version should be
+replaced by the OS-generic versions of them. Access from the user side takes
+place via direct access as a linear array. The size of the buffer is defined
+in the mmap call. It is filled asynchronously via a DMA unit, using
+concatenated urb requests of dynamically adjusted size to optimize latency and
+throughput. It operates both with USB 1.x and USB2.0 host adapters, the only
+difference is the mean event rate which can be obtained.
+
+The driver should be able to handle multiple cards plugged into the system,
+and at least udev should distribute meaningful device names dynamically.
+
+Driver API:
+
+- request a buffer with the mmap command. 
+- various control ioctls for steering the hardware, the DMA engine in the
+  driver, and to find out the amount of transferred data. See readevents2.c
+  application to get an idea how the commands are used.
+
+
+Issues:
+Not sure if multiple cards will be handled nicely, especially in the 9.3
+hotpluging script.
+
+Error scenarios:
+
+The device in /dev/ioboards/timestamp0 does not show up. 
+
+- Test if the system recognizes the device by calling lsusb as superuser
+  and look for a device with Cypress Vendor ID and a Device ID of 1234. If you 
+  do not find the device, the driver can not be loaded.
+
+- you got the wrong hotplugging script installed. Check your distribution
+
+
+Christian Kurtsiefer, 30.1.07

@@ -1,0 +1,3 @@
+This is a usb version of the readevents program. First version 17.12.06
+Modified version to accept more counts 26.2.07chk
+fixed bit errors and wrong int/ext clk selection 24.3.07chk

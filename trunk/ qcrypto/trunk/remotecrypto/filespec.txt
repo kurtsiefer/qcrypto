@@ -1,0 +1,234 @@
+File specification for exchange of sifting / key information between two
+crypto clients.
+
+status of document: 27.11.05 (clarified detail for t4 termination)
+
+started: 22.8.05
+
+Rationale
+The key generation procedure with either BB84 or entanglement based protocols
+is streamed data which is prepared by physical hardware. Assuming that
+usage time of the physical system is the most expensive element in a key
+generation procedure,  any communication protocol should be as efficient as
+possible to ensure no data being lost or available time is
+waisted. Furthermore the classical communication for synchronization and
+sifting is probably requiring the largest bandwidth in communication between
+two partners. The following is an attempt to define file and data stream
+formats used to communicate detected photon events on several sides. It
+focuses on a hardware which uses a timestamping card to detect events, as a
+first method of keeping the accumulated information per click in a scenario
+with up to 10^6 detection events per second and a timing requirement on the
+order of 1 nsec small on a hardware side.
+
+0. The raw file format
+The structure of events as emitted by the timestamp cards is a series of 64
+bit wide structures containing timing and detector event information:
+the data is emitted/saved as a sequence of two unsigned 32 bit wide integers,
+
+   struct rawevent {int msw; int lsw};
+
+where the detection time is contained in the most significant 49 bits of the
+64 bit combination of msw/lsw. The time is recorded in multiples of 125
+picoseconds. In the least significant four bits of lsw, the detector status is
+recorded. At the moment, this format only works with four possible
+detectors. For future use, a combination of up to eight detectors might be
+considered, contained in the lower 8 bits of lsb. 
+
+
+The origin of the time may be varying according to the timestamp save
+procedure: one option is to define the start of the acquisition as the origin
+of time, another option adds the time of the day (microseconds since start of
+the day - please check with reading program??) such that two computers can
+compare timestamps with a raw accuracy supplied by their local clocks.
+
+
+All subsequent data will be partitioned, transferred and processed according
+to epoch. An epoch is defined by all events with the same most significant 17
+bits of raw timing information. That will correspond to a time span of
+2^(49-17)*1/8 nsec = 2^29 nsec approx 537 msec. For the numbering of an epoch
+there are two possibilities:
+the first one takes the epoch just as the most significant 17 bits of the
+timing event. An epoch is a unsigned 32bit wide integer type, and the least
+significant bit of that integer contains the least significant bit of the
+epoch. In a second version, the epoch data from the raw timestamp data format is
+corrected by the Unix definition of the origin of time, such that the extended
+timestamp information (exceeding the original 49 bits of timing info) is
+referring to the Unix time origin definition of midnight January 1, 1970.
+The correction is carried out and the epoch contains the least significant 32
+bits of that time in multiples of 2^29 nsec. This will ensure no rollover
+during 73 years or before the year 2043. In the following, the second
+definition of epoch will be referred to as extended epoch.
+
+Epochs are supposed to be used as filenames or reference handles for any set of
+data in subsequent processing. For the different communication and storage
+jobs within a key establishing sequence, several tagged data file or stream
+packet formats are specified. Each packet of file contains an identifier
+describing the type of data file, the corresponding epoch and possibly some
+length and encoding information. To ensure that subsequent packets can be
+separated from a continuous stream even without special external separation
+indicators (like EOF marks or closures of a socket), each packet should have a
+content-based termination criterium. That can either be a number of entries
+information, or a specific codeword to terminate the current packet.
+
+The following file types seem to be useful:
+
+1. packaged raw data file
+The intent of this format is for local storage purposes with minimal
+processing overhead and the ability to partition raw data into epochized
+packets. format (as saved in binary version on a x86 architecture; ints and
+unsigned ints refer to 32 bit wide integers):
+
+        struct header_1 {int tag;
+		         unsigned int epoc;
+		         unsigned int length;
+		         int bitsperentry;
+		         int basebits;}
+
+<tag> is either 1 for simple raw data or 0x101 for raw data with an extended
+epoch. <length> is optional and counts the number of 64 bit entries to
+follow. If length is zero, the packet termination has to be determined by an
+event with all 64 bits set to zero (such an event is unlikely to occur). The
+<bitsperentry> is fixed to a value of 49. The <basebits> entry contains the
+number of bits encoding detector clicks and coincidences and depends on the
+timestamp card used. The native format of the event reader program is used,
+and contains currently 4 for four detectors.
+
+The header is followed by 64 bit entries corresponding to the rawevent type
+definition. A rawevent entry with the value {0,0} indicates the end of a
+packet. If there is a conflict of termination precedence between the <length>
+entry and the termination code, the file is considered inconsistent (changed
+chk22.8.). A file always has to have a termination pair {0,0} at the end; this
+is not counted towards the entries.
+
+
+
+2. Timing info and base choice file for initial sifting
+This packet definition is supposed to be used for communication of
+coincidences and matching base recognition in the first sifting procedure. It
+should contain the timing information in a compressed manner; compression is
+based on the idea that timing events are incremental, and only the difference
+of time information is transmitted. The algorithm should be implemented with
+little computational overhead and is hopefully reasonably efficient (less than
+20% excess size compared to the informational optimum for this stream).
+
+header format:
+        struct header_2 {int tag;
+			 unsigned int epoc;
+			 unsigned int length;
+			 int timeorder;
+			 int basebits;
+			 int protocol;}
+
+The <tag> entry is either 0x2 for local epoch or 0x102 for an extended epoch
+definition. The <length> entry is optional and counts the number of events
+encoded in the whole stream. The <timeorder> entry contains the number of bits
+used for basic time-difference encoding in the data section. The <basebits>
+entry gives the number of basis bits transmitted in this stream and is 1 for
+BB84 type protocols. protocol contains info about the protocol used in the
+compressor. Currently supported are:
+ 0: service protocol. both type-2 stream and type-3 stream
+    contain the raw detector information.
+ 1: BB84 standard protocol. The type-2 stream contains one bit
+    of basis information, the type-3 stream one bit of
+    value information. The detector sequence is hard coded in
+    the header.
+ 2: rich BB84. As before, but two  bits are transmitted. if the
+    msb is 0, the lsb has BB84 meaning, if msb is 1, a multi-
+    or no-coincidence event was recorded (lsb=1), or a pair
+    coincidence was detected (lsb=0).
+		 
+
+
+The data section contains a stream of bit-packed entries with a length of
+<timeorder>+<basebits> bits each, where the <timeorder> bits are the least
+significant bits and the base bits the most significant ones. bit packing is
+performed in a 32bit word wise way with the first entry aligned to the most
+significant bit of the 32 bit word. data is saved in 32 bit wide chunks, and
+the data section has a multiple length of an 32bit integer. A timing entry of
+0 is interpreted as an extension word, indicating a following of a 32 bit
+value for time differences in case the announced <timeorder> is too small to
+encode a particular time difference. The combination of the 0 codeword and the
+32bit hires timing info is counted as a single entry for the entry count.
+A codeword of 1 (in the timing information) is indicating the end of the
+packet. The end codeword also emits a basebit information containing 0.
+
+In the unlikely case that the real time difference is either 0 or 1, the
+absolute time of this particular event is shifted by 1/4 nsec such that no
+time differences of 0 to 1 can appear in this transmission. This error should
+not lead to any significant data corruption or spoil the coincidence tracking.
+
+restrictions: the sum of bits used for difference encoding and the sum of bits
+used for data encoding cannot exceed 32 bits. checks have to be made both in
+the compression and decompression. (TODO!!!)
+
+
+3. local sift storage
+While preparing the packets with the time difference information for a
+coincidence and sift check on Alice side, the detailed timing information is
+not strictly necessary anymore on that side. For the storage of the
+base/result information of a particular click until a response from bob is
+received, a compact file structure on Alice side is needed. This will be the
+information with the maximum storage requirement on Alice side; therefore, it
+makes sense to keep this information stored efficiently. Since the
+identification of the individual events in an epoch are identified by the time
+sequence in the transmitted file type 2 already, only the packed bit
+information has to be stored.
+
+header format:
+
+        struct header_3 {int tag;
+			 unsigned int epoc;
+			 unsigned int length;
+			 int bitsperentry; }
+
+The <tag> entry is  either 0x3 for local epoch or 0x103 for an extended epoch
+definition. The <length> entry is optional and counts the number of events
+encoded in the whole stream. However, if the length argument is not specified,
+there is a possible security hole in the packet structure in the sense that an
+eavesdropper could insert wrong responses and therefore force Alice to use
+possibly predictable entries at the end of a file, since the data itself
+contains no termination character. It is therefore recommended to either use
+the length in a mandatory way, or check the consistency of the timing
+response in another way. The <bitsperentry>  could be either one or two bits;
+one is minimal if the base were not to be saved on Alice side in a simple bb84
+protocol. Since this is the largest storage requirement (round-trip response
+time times the detection rate), it might be considered worth not storing the
+base.
+
+The data section contains the bits in a packed order, with the first entry
+being aligned to the most significant 32 bit word; packing takes place in a 32
+bit wide variable. The data section consists of an integer multiple of 32bit
+wide words, the possibly unused last bits in the data field are set to zero.
+
+4. Coincidence/sift check response
+To respond from bob to Alice with a coincidence/base-match file for the events
+in one epoch, only the index of the entry in the query file (type 2) of
+matching events have to be returned. For a given epoch, this index increases
+monotonously, so again a differential encoding may be the most efficient
+way. For a single/pair efficiency of 20% on the generation side, and a loss of
+0 dB to 30 dB, a typical index spacing will be between 5 and 5000 entries,
+leading to a optimal word size between 3 and 13 bit. Therefore, index
+submission is always more efficient than yes/no encoding for all queried
+events. The encoding is very similar to file format type 2.
+
+header format:
+        struct header_4 {int tag;
+			 unsigned int epoc;
+			 unsigned int length;
+			 int timeorder;
+			 int basebits;}
+
+The <tag> entry is  either 0x4 for local epoc or 0x104 for an extended epoc
+definition. The <length> entry is optional and counts the number of events
+encoded in the whole stream. The <timeorder> entry contains the number of bits
+used for basic time-difference encoding in the data section. The <basebits>
+entry gives the number of basis bits transmitted in this stream and is 0 for
+BB84 type protocols.
+
+Data is again encoded in packed bit versions, and packing is done similarly as
+in file type 2. The two reserved control words 0 and 1 have the same meaning
+as in file type 2, therefore the first useful timing index is 2. To
+accommodate for the first two possible indices,  the index is just increased by
+2 before encoding, and has to be reduced by 2 upon decoding. The datacontent
+bit pattern is emitted together with every event or entry in the data section,
+including the termination word (even there it has no information content).
