@@ -1,0 +1,148 @@
+Some random thoughts on an error correction unit.
+
+has to digest the raw key files, may communicate with separate communication
+package files. Should result in a 
+
+Some random thoughts on a GUI spec:
+- call the various programs on both sides
+- synchronize with other side via message interface
+- display operational parameters
+- create all communication sockets
+- remove/store key files
+- 
+
+
+------------------
+
+For process and flow control, a connection between the peers is established
+via the transferd program, which also allows for sending messages over the
+connection.
+
+messages are interpreted by the control layer, and used to feed the processing
+parts of the software with steering parameters.
+
+To simplify processing in scripts, these messages are text based, and follow
+the format
+
+      command:param1:param2:....param_n
+
+with an optional colon at the end.
+
+The following message groups are used:
+
+Identification process:
+Every party has an identity or name, and needs to make sure it communicates
+with the desired other party. To identify the other party B, one party A
+issues an identification request to the network port together with information
+about its own identity. Then, the party B responds with a second message
+containing both its identity and repeats the remote identity. To acknowledge
+the receipt of this message, party A sends a third packet containing its own
+and the remote identity to party B. This way, party B knows that the
+identification message was understood, and both parties consider themselves as
+identified. 
+This process is, of course, not a secure authentication scheme. It
+could be extened to a more secure way by using up some previously accumulated
+key.
+
+Messages:
+
+  id1:<ownidentity>                    Request for identification
+  
+  id2:<ownidentity>:<remoteidentity>   response to a remote call id1
+
+  id3:<ownidentity>:<remoteidentity>   response to a remote call id3,
+                                       used for acknowledgement.
+
+There needs to be a fallback strategy for dealing with misdirected calls for
+identificaltion. One scenario is that both parties try to initiate an
+identification, while no request has take place from the other side. Then, any
+party will receive a message 1 instead of a message 2. In this case, each
+party considers the identification to have failed and waits for a random time
+before trying to identify again.  Mismatches in the identification scheme lead
+to an instant drop in the connection to a level of before the
+identification. Similarly, if there is a mismatch in the re-received identity,
+the connection is dropped to a lower connection level. This should also
+involve a blocking of file transfer requests by the transfer deamon. Perhaps
+this can be controlled by signals.
+
+
+Active/passive negotiation for sifting purpose:
+For negotiation on who will transmit the big-bandwidth consuming
+time-of-arrival information, both parties have to agree to measure the count
+rates on each side. The side with the larger count rate should act as the
+receiving side, and do the sifting/coincidence identification. Similarly to
+the identity negotioation, this is done in a tree-message way: An initial
+party issues negotiation request, revealing the local count rate to the other
+party. The questioned party responds with message containing both the local
+and remote count rate, and the third message of the same structure is used
+from the originating side to acknowledge the negotiation request. The decision
+who acts as a transmitter side for timing informaton is based on the
+negotiated count rates: The lower count rate side will take this part. If the
+negotiated count rates are the same, the party who initiated the request takes
+the time transmitting part. If there is a collision of requests, negotiation
+onboth sides is dropped for a random time. The integration time intervall for
+determining the rates is the length of one epoch, or approx. 537 msec.
+
+Messages:
+
+  ne1:<localcounts>	            request for negotiation, parameter is
+                                    integer number of events in one epoch.
+
+  ne2:<localcounts>:<remotecounts>  response to message ne1
+
+  ne3:<localcounts>:<remotecounts>  acknowledgement message in response to ne2
+
+Protocol negotiation:
+There are several protocols for the information exchange which can be run by
+the different levels. On the control level of the script up to the error
+correction, there should implemented:
+
+0: no protocol negotiated (used as a status variable)
+
+1: service protocol
+
+2: simple BB84
+
+....
+
+The protocol negotiation should be preceeded py a symmetry negotiation, and
+followed by a start transfer command. 
+
+Messages: 
+
+  pr1:<requested proto>             requests installation of a protocol
+  pr2:<proto response>              confirms the protocol
+  pr3:<proto>                       acknowledges the protocol.
+
+If any of these messages is missing, the protocol is dropped.
+
+Start data acquisiton messages:
+  st1, st2, st3		 
+
+starting sequence. Preparation should take place onside A after sending st1,
+and completed before sending st3, after which the data acquisition is running.
+On the other side, the preparation should start after receiving st1, and
+completed before sending st2. Upon receiving st3, everything should be
+running. If the acknowledgement on each side is not received within 3 seconds,
+the starting attempt is considered to have failed.
+
+End accquisition messages:
+
+  en1, en2, en3
+
+End sequence. the initiating side stops generating data, sends en1, and
+processes incomig data until it receives en2, sends then en3. The queried side
+responds to en1 with en2, and terminates processes at receipt of en3.
+
+
+Information requests/responses:
+
+  ti1 requests transmission of the current time delay for the clock drift etc
+  ti2:<outepoch>:<rawevents>:<sentevents>:<compr1>:<detlat>:\
+      <accidental>:<coinc>    sends the output of the costream log output back
+
+if no information is available, the rest of ti2 contains whatever the default
+content of the statstring variable is (probably "-")
+
+  
+Key usage:

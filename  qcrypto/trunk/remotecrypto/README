@@ -1,0 +1,182 @@
+This is a futile attempt of documenting the different programs for the quantum
+key distribution suite. It is notoriously incomplete, and the reader is
+strongly advised to consult the C code of the programs for coments and usage
+information.
+
+LICENSE
+
+ Copyright (C) 2005-2006 Christian Kurtsiefer, National University
+                         of Singapore <christian.kurtsiefer@gmail.com>
+
+ This source code is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Public License as published 
+ by the Free Software Foundation; either version 2 of the License,
+ or (at your option) any later version.
+
+ This source code is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ Please refer to the GNU Public License for more details.
+
+ You should have received a copy of the GNU Public License along with
+ this source code; if not, write to:
+ Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+
+PREREQUISITS
+
+This directory contains the core processing programs for a BB84 type key
+generation scheme. In order to work properly with the hardware, the user
+program for the timestamp card, and a device driver for the appropriate
+interface are needed as well. For the USB-interfaced timestamp card, these
+directories are  usbtimetagdriver and timestamp3, or the earlier version
+timestamp2. For the PCI card based version, a nudaq7200 driver and the
+timestamp directory is needed.
+
+The error correction suite can be found in the ec2 directory, also outside
+this core directory.
+
+For proper operation of the gui, the following links from extal directories
+into this one are needed:
+
+A symbolic link to the current readevents program should be set under the name
+"readevents". This can be done e.g. with the command
+ ln -s ../timestamp3/readevents3 ./readevents
+The readevents program is the user side part of the interface to talk to the
+timestamp card. It tries to efficiently (as in avoidance of memcpy type code)
+parse the raw data containing the phase pattern, coarse and fine counter info,
+and event register into a single timestamp structure of 64 bit. There is an
+option to splice in individual detector delays, and an absolute time
+information from the system gettime call. This is the default operation for
+the crypto applicatons.
+
+Another symbolic link is needed for getting the error correction deamon
+running; target name has to be "errcd". This can be done with the command
+ ln -s ../ec2/ecd2 errcd
+
+REQUIREMENTS
+
+A usual gcc development environment is necessary.
+
+For proper operation of the initial time difference finding, the fftw3 library
+and corresponding header file needs to be installed for the fast fourier code.
+
+Gnuplot needs to be installed as it is the graphical rendering engine for
+displaying mointor data.
+
+
+RATIONALE
+
+  The code is written such that it can operate as asynchronously as possible
+  with large ammounts of binary data, there should be a minimum of latency
+  problems in interprocess communication. In order to allow for modularized
+  testing and operation, the code leaves large data in individual files, and
+  only exchanges low bandwidth textual control information via pipes. The hope
+  is that with modern disk cache techniques, none of the big data files makes
+  it ever physically onto the hard disk, because files are removed upon
+  consumption by the consuming code. This way, both flexibility in
+  reconfiguration and debugging was supposed to be ensured, and in normal
+  usage, disk write speed limitation should never be a concern.
+
+  These intermediate files are mostly of binary structure, with a
+  header/content structure as described in the filespec.txt file.
+
+
+OPERATING MODES
+
+The programs are tailored for various operation modes, namely the service mode
+and the key generatio nmode. In service mode, the full detector information is
+transmitted to the other side to allow for source alignment, fiber
+neutralization etc. In this mode, the full measurement information is revealed
+to the other side, and thus also exposed to an eavesdropper. This is obviously
+not ssecure. The BB84 mode does not transmit this information.
+
+CORE OPERATING PROGRAMS
+
+chopper.c: Partitioner and timing data compressor, low cnt side
+
+  This code digests the raw timestamp output from the readevents program into
+  packets of compressed timing/basis information (t2 files) to the other
+  side, splices timestamp and CPU timing for long time rollover
+  information, and generates local mesaurement result files for processing
+  until the coincindece identification unit returns an acknowledgement. It
+  typically operates (and was tested) in a mode where the input comes form a
+  named pipe, and the output packets are stored in a directory. Various 
+  notification and log information options are given to allow a control
+  program to act accordingly upon  finished epoch packets. Details of the
+  compression in the T2 file spec and the code directly.
+
+chopper2.c: Partitioner on the high count side
+
+  Similar to chopper, this code partitions raw data generated from the
+  readevents program, but does no timing compression, as it is suposed to be
+  digested by the costream program directly. Typically it generates t1 files
+  into a directory, and notifies a consumer program via a log file or a text
+  pipe.
+
+transferd.c: Classical communication gateway
+
+  This code somewhat independently transfers files from various directories
+  via a single TCP port to the other machine, and also has some specific pipes
+  for GUI and error correction communication in place such that these units
+  can communicate independently. The program is used symmetrically on both
+  sides.
+
+pfind.c: Initial timing difference finder.
+
+  This code takes some T1 and T2 files, and extracts the initial timing
+  difference out of them to initiate the clock tracker in the the costream
+  code. AS a status information, it emits also the Signal-to-noise ratio with
+  which the peak in the cross correlation function was found. This allows to
+  assess the validity of the result. Parameters for this program are the
+  number of epochs to be considered, and the depth for the FFT. Typically, the
+  FFTs are carried out over 2^17 or 2^19 elements under high background/signal
+  conditions. It returns the time difference with an accuracy of 2 nsec. Be
+  aware that for proper functionality, the time difference between the two
+  sides needs to be better than about 400msec. This accuracy between two host
+  computers should be established using an NTP server or similar.
+
+costream.c: Main coincidence identification / sifting code / clock tracking
+
+splicer.c: carries out the final sifting stage on the low count rate side
+ 
+crgui_ec: TCL/Tk GUI to tie all the codes together.
+
+ I know it sucks, has many missing interlocks for buttons etc, but it works
+ for our purposes.
+
+localparams: A complementary file for the gui
+
+  Used for storing individual detector delays, and some default params like
+  machine address, target IP etc.
+
+diagnosis.c: for analyzing raw key files in service mode
+
+ This code is used to generate a correlation matrix from t3 files, and just
+ counts various detector combination events in that file.
+
+diagbb84.c: Just extracts the length of a bb84 raw key file.
+
+getrate.c: Converts the output from the timestamp unit in rates.
+
+  This code is used for alignment purposes.
+
+AUXILIARY PROCESSING CODE
+
+decompress.c: converts compressed t2 files into hex files
+
+ Used for debugging the chopper algorithm.
+
+ffind.c : Early testing version for the time difference finding program
+
+ uses plain ascii text for timing information. See header for more description.
+
+DOCUMENTATION FILES
+
+filespec.txt: Main description of all the binary file formats.
+
+epochdefinition: An incomplete writeup of the timing format used to partition
+all timing key and communication elements.
+
+gui_spec: An incomplete writeup of communication snippets between the GUI
+ running on both sides

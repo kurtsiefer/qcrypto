@@ -1,0 +1,18 @@
+Ok, differnt versions of the new hotplugger for different OS versions:
+
+for SuSE 9.3:
+t5.hotplug goes into /ec/hotplug.d/usb/
+
+This version is slightly flaky as there are only links to two timestamp cards
+available at any time. The original set of permissions/ownership for the
+directly created device are strange, the device seems to be owned by the group
+disk. Inserted a device node with the correct permissions (is that safe???)
+
+
+for SuSE 10.0:
+
+60-timestamp.rules goes into /etc/udev/rules.d
+
+changed to tstusb2.hotplug
+
+todo: check compatibility with other OS versions

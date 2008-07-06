@@ -1,0 +1,10 @@
+#set of udev rules to cope with a new device driver
+
+SUBSYSTEM=="usb", ACTION=="add", ENV{PRODUCT}=="4b4/1234/*", RUN+="/sbin/insmod DRIVERPATH/usbtimetag.ko"
+
+SUBSYSTEM=="usb", ACTION=="remove", ENV{PRODUCT}=="4b4/1234/*", RUN+="/sbin/rmmod usbtimetag"
+
+# create a symbolic link to the device ina ioboards directory with the correct
+# owner set to the original device
+
+SUBSYSTEM=="usb", ACTION=="add", ENV{PHYSDEVDRIVER}=="usbtimetag", GROUP="users", SYMLINK="ioboards/%k"

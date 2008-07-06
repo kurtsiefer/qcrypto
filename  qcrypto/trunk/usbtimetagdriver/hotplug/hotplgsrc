@@ -1,0 +1,82 @@
+#!/bin/sh
+#
+# /etc/hotplug.d/usb/t5.hotplug
+#
+# Sets up newly plugged in USB timestamp adapter
+# This location of the script ensures that the driver is correctly 
+# unloaded after a removing the device.
+# 
+# christian Kurtsiefer  22.1.07
+#
+#
+
+moduledir="DRIVERPATH"
+module="usbtimetag"
+devicenodepath="/dev/ioboards"
+devicenode=$devicenodepath/timestamp
+group="users"
+
+VENDORID="0x04b4"
+PRODUCTID="0x1234"
+
+VENDORID=$(($VENDORID))
+PRODUCTID=$(($PRODUCTID))
+
+usb_convert_vars ()
+{
+    set -- `IFS=/; echo $PRODUCT`
+    usb_idVendor=$((0x$1))
+    usb_idProduct=$((0x$2))
+    usb_bcdDevice=$((0x$3))
+}
+
+add_driver () {
+    /sbin/insmod $moduledir/$module.ko
+}
+
+remove_driver () {
+    /sbin/rmmod $module
+}
+
+add_devicenode () {
+    # this is a dirty replacement to have a few device file nodes installed
+    mknod /dev/ioboards/timestamp0 c 180 80
+    mknod /dev/ioboards/timestamp1 c 180 81
+    /bin/chgrp $group ${devicenode}*
+    /bin/chmod 660 ${devicenode}*
+ 
+}
+
+remove_devicenode () {
+    # this is not nice yet - here all the devices get removed....better
+    # skip it altogether? 
+        /bin/rm -f ${devicenode}*
+}
+
+usb_convert_vars
+
+
+case "$ACTION" in
+add)
+  # are we meant for this event?
+	if [ $usb_idVendor == $VENDORID ] && [ $usb_idProduct == $PRODUCTID ];
+      then
+      # do the device load
+      add_driver
+      add_devicenode
+  fi
+  ;;
+remove)
+  # are we meant for this event?
+  usb_convert_vars
+  if [ $usb_idVendor == $VENDORID ] && [ $usb_idProduct == $PRODUCTID ]; then
+
+      remove_devicenode
+      # do the device remove
+      remove_driver
+
+  fi
+  ;;
+esac
+
+exit 0

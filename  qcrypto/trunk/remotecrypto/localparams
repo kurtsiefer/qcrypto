@@ -1,0 +1,11 @@
+set targetmachine "192.168.0.114"
+#set targetmachine "192.168.8.4"
+set localidentity "dwarf"
+
+# detector delay values for electron
+set detcval(0) 6 ; set detcval(1) 3
+set detcval(2) 10 ; set detcval(3) 10 
+
+# various mode settings
+set detcorrmode 1 ; # detector correction is on
+set costreamglogmode 1 ; # costream logging is on
