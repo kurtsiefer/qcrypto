@@ -2,10 +2,10 @@
                   user space program to read the timing information from the
 		  timestamp unit and generate a clean stream of 64 bit wide
 		  time stamps.
-		  Version as of 20071228, works also for Ekert-91
+		  Version as of 20080225, works also for Ekert-91
 		  type protocols.
 
- Copyright (C) 2005-2007 Christian Kurtsiefer, National University
+ Copyright (C) 2005-2008 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -22,28 +22,19 @@
  this source code; if not, write to:
  Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
---
+------
 
- MODIFIED VERSION TO CATER FOR 6 PHOTODETECTORS. NOT READY YET. PERHAPS THE
-   NEW OPTION -D CAN BE MADE COMPATIBLE WITH THE OLD VERSION
-
-program to read in events from the timestamp card and do the first
+   program to read in events from the timestamp card and do the first
    processing to the data. Configuration happens by commandline options.
 
    version for usb card....first attempt 17.12.06chk
-   status: converted completely, needs testing 26.12.06chk
-           confirmed working at rates up to 40 kevents/Sec in usb1.
-	   confirmed working at rates around 2.3 Mevents/sec. occasionaly
-	   complains about congestion....
-	   confirmed working at <4Mevents/sec on true fast USB port
-	   fixed missing bits and wrong int/ext selection chk240307
+   status: version as of 25.2.08 chk
  
-	   todo: check other output modes, clean up code
-
    output is directed to stdout in a configurable form, and data acquisition
    is controlled via some signals.
 
    usage:  readevents [-t treshold | -T tresh_absolute] [-q maxevents]
+                      [-r | -R ] [-a outmode] [other options, see below]  
 
    command line options:
    -t treshold       :set input treshold to a given value in DAC units,
@@ -123,6 +114,8 @@ program to read in events from the timestamp card and do the first
 		      line 2-3:  det 6
 		      line 3-4:  det 7
 		      line 4-1:  det 8
+   -u                 usb flush mode is on. If no events were detected
+                      during one periode, the flush option is activated
 
 
    Signals:
@@ -161,18 +154,22 @@ program to read in events from the timestamp card and do the first
    - made phasepattern 2 default 7.2.06 chk
    - added more detaille error msgs on dmaerror 4.3.06chk
    - fixed control time monitoring???? 12.3.06chk
+   - usb version, based on readevents. First version 17.12.06chk
+   - converted to USB completely, needs testing 26.12.06chk
+   - confirmed working at rates up to 40 kevents/Sec in usb1.
+   - confirmed working at rates around 2.3 Mevents/sec. occasionaly
+   - complains about congestion....
+   - confirmed working at <4Mevents/sec on true fast USB port
+   - fixed missing bits and wrong int/ext selection chk240307
+   - some cleanup, propagated indexin into out options 3,4,5  25.2.08chk
+
 
    ToDo:
    - more cleanup of preprocessing routine for more efficient CPU usage
    - use long long types (violating ANSI C ......?)
-   - introduce a survive-buffer-overflow  mode on high system load
-   - have seen a segmentation fault at high rates.....
    - empty various buffers & FIFOS after disable or before enable
-   - read config from EEPROM in card for phase table
-
-
-   status:
-   adding more time differences
+   - use cleaner identifier int/longint for variables relying on 32/64bit
+   - check output modes 3,4,5
 
 */
 
@@ -191,6 +188,11 @@ program to read in events from the timestamp card and do the first
 
 #include "timetag_io2.h"
 #include "usbtimetagio.h"
+
+/* play with flush mode */
+#define USBFLUSHHELPER
+
+
 /* default settings */
 #define DEFAULT_VERBOSITY 0
 #define MAX_VERBOSITY 1
@@ -330,12 +332,7 @@ unsigned long long my_time(void)
 	fprintf(stderr,"gettime err in readevents; errno: %d\n",errno);
 	return 0;
     }
-/* this is changed to fit to the standard unix time */
-/*	seconds = tp.tv_sec;
-        broken = localtime(&seconds);
-        tp.tv_sec = (*broken).tm_hour * 3600 + 
-	    (*broken).tm_min * 60 + (*broken).tm_sec; 
-*/
+
     lret = timerequest_pointer.tv_sec;
     lret *= 1000000;
     lret += timerequest_pointer.tv_usec;
@@ -371,9 +368,6 @@ void timer_handler(int sig) {
 	    /* averaged difference between PC clock and timestamp clock */
 	    mtd=(long long int)(mt2-ct_ref_time);
 	    avg_diff += ((long long int)mtd-avg_diff)/300; /* avg time is 10 sec */
-
-/*	    fprintf(stderr,"mt2: %.3f, ctr: %.3f, mtd: %.3f, avgd: %.3f\n",
-	    cons*mt2,cons*ct_ref_time,cons*mtd,cons*avg_diff); */
 
 	    /* avg_diff=0; */
 	    controltime_coarse = (mt2-avg_diff)>>48; /* in 2^30 nsec */
@@ -420,135 +414,47 @@ struct processedtime outbuf[dmasize_in_longints/2];
    occured. 
 */
 int process_quads(void *sourcebuffer, int startquad, int endquad) {
-  unsigned int *events;
-  int startindex, endindex,i; 
-  int numberofquads;
-  int j;  /* processing variables */
-  unsigned int ju; /* for parsing binary numbers */
-  unsigned int u; /* contains events */
-  /* main processing variables */
-  int quadsthere;
-  unsigned int cv, cvd, v1, dv, fastcnt, b0;
-  char *formatstring;
-  static char formatstring_1[] = "event: msl: %08x; lsl: %08x\n";
-  static char formatstring_2[] = "%08x%08x\n";
-  int markit=0;     /* for debugging time error */
-  unsigned long long current_time;
-
-  events = (unsigned int *)sourcebuffer;
-  numberofquads = (endquad - startquad) & QUADMASK3 ; /* anticipate roll over*/
-
-  /* what if startquad == endquad? */
-  if (numberofquads == 0) return 0; /* only look for pos transfers */
-  /* complain if buffer is too filled */
-  if ( numberofquads > ((int) dmabuf_complainwatermark) ) {
-      fprintf(stderr,"numofquads: %d, complainwm: %d\n",numberofquads, ((int) dmabuf_complainwatermark));
-      return -1;
-  }
-  
-  startindex = startquad % dmasize_in_longints;
-  endindex   =   endquad % dmasize_in_longints;
-
-  switch (outmode) {
-      case 0:   /* just for simple printout */
-        for (i=startindex;i!=endindex;i=((i+1) % dmasize_in_longints)) {
-	    u=events[i];
-	    if (verbosity) { /* long version */
-		  printf("index: %04d, value: %08x :",i,u);
-		  for (ju=0x80000000;ju;ju>>=1) printf("%d",((ju&u)?1:0));
-		  printf("\n");
-	    } else {
-		printf("%08x\n",u); /* only hex code */
-	    }
-	}
-	/* check if max event mechanism is active */
-	if (maxevents) {
-	    currentevents++;
-	    if (currentevents==maxevents) {
-		terminateflag=1;
-		return numberofquads;
-	    }
-	}
-	return numberofquads;
-  
-  /* do first processing  in other cases */
-      case 1:case 2:
-	i=startindex;
-	j=0; /* start target index */ 
-	for (quadsthere=numberofquads;
-	     quadsthere>1;
-	     quadsthere--,i=((i+1) % dmasize_in_longints)) {
-	    /* extract coarse  val and check for consistency */
-	    cv=events[(i+1) % dmasize_in_longints];
-	    cvd=(cv>>16)-controltime_coarse+2; /* difference plus 2 */
-	    /* for debugging stop */
-	    if (cvd>4) {/* allow for approx 2 sec difference */
-		fprintf(stderr,"timing out of range; cv=%d, control=%d, dv=%d, idx: %d\n",cv,controltime_coarse,events[i],i);
-		/* continue; */
-	    	if (markoption==1) markit+=0x10;
-		/* FIXME: for debug: try not to realign 4-byte entities */
-		quadsthere--;i=((i+1) % dmasize_in_longints);
-		continue;
-		} 
-	    /* now we should be consistent. no mixing necessry anymore */ 
-	    /* get first and second entry */
-	    dv=events[(i % dmasize_in_longints)];
-	    v1=((dv & 0xc000)>>12) | ((dv & 0x30000)>>16); /* event lines */
-	    // v2=(events[(i+1) % dmasize_in_longints] & 0xffff);
-	    fastcnt=(dv & 0x3e00)<<10;
-	    if (markoption==0) 
-		markit= (dv<<4); /* bring phase pattern in place */
-	    /* construct lower significant u32, containing c0-c12, c_1..c_4, 
-	       and the event bits in the least significant nibble.
-	       order there: bit 3..0=inA..InD */
-	    dv=(dv & 0xff000000) | /* bits c5..c12 */
-		fastcnt | /* bits c0..c4 */
-		phasetable[dv & 0x1ff] |  /* do phase interpolation */
-		v1 | /* event lines */
-                (markit & 0x1ff0);  /* for debugging */
-
-	    /* repair pipelining bug */
-	    if ( (fastcnt < 0x00880000)) {
-		b0=dv & 0x80000000; /* remember carry */
-		dv+=0x01000000;
-		if (b0 && !(dv & 0x80000000)) cv++; /* eventually do carry */
-	    }
-
-	    if(timemode==1) {
-		current_time = (((unsigned long long)cv) << 32) 
- 		    + (unsigned long long)dv
-		    /* correction for time skew of individual detectors */ 
- 		    + dayoffset[dv&0xf];
-		
-	    	outbuf[j].cv=(unsigned int) (current_time >> 32);  
-	    	outbuf[j].dv=(unsigned int) (current_time & 0xffffffff);
-	    } 
-	    else{
-	    	outbuf[j].cv=cv; outbuf[j].dv=dv;
-	    }
-	    /* keep track of movin difference */
-	    if (controltime_getmeone) {
-		controltime_cv=cv; controltime_dv=dv;controltime_getmeone=0;
-	    }
-
-	    if (trapmode) {
-		trap_uval=cv>>9; /* time in units of 8ms */
-		trap_diff=trap_uval-trap_old; trap_old=trap_uval;
-		if (trap_n>1024) {
-		    /* test if diffference exceeds 8 avg differences */
-		    if ((trap_diff<0) || ((trap_diff*32)>trap_diffavg)) {
-			/* we have an exception */
-			j--;
-			goto dontcount;
-			
-		    }
+    unsigned int *events;
+    int startindex, endindex,i; 
+    int numberofquads;
+    int j;  /* processing variables */
+    unsigned int ju; /* for parsing binary numbers */
+    unsigned int u; /* contains events */
+    /* main processing variables */
+    int quadsthere;
+    unsigned int cv, cvd, v1, dv, fastcnt, b0;
+    char *formatstring;
+    static char formatstring_1[] = "event: msl: %08x; lsl: %08x\n";
+    static char formatstring_2[] = "%08x%08x\n";
+    int markit=0;     /* for debugging time error */
+    unsigned long long current_time;
+    
+    events = (unsigned int *)sourcebuffer;
+    numberofquads = (endquad - startquad) & QUADMASK3 ; /* anticipate roll over*/
+    
+    /* what if startquad == endquad? */
+    if (numberofquads == 0) return 0; /* only look for pos transfers */
+    /* complain if buffer is too filled */
+    if ( numberofquads > ((int) dmabuf_complainwatermark) ) {
+	fprintf(stderr,"numofquads: %d, complainwm: %d\n",numberofquads, ((int) dmabuf_complainwatermark));
+	return -1;
+    }
+    
+    startindex = startquad % dmasize_in_longints;
+    endindex   =   endquad % dmasize_in_longints;
+    
+    switch (outmode) {
+	case 0:   /* just for simple printout */
+	    for (i=startindex;i!=endindex;i=((i+1) % dmasize_in_longints)) {
+		u=events[i];
+		if (verbosity) { /* long version */
+		    printf("index: %04d, value: %08x :",i,u);
+		    for (ju=0x80000000;ju;ju>>=1) printf("%d",((ju&u)?1:0));
+		    printf("\n");
+		} else {
+		    printf("%08x\n",u); /* only hex code */
 		}
-		trap_diffavg += trap_diff-trap_diffavg/256;
-	    dontcount: trap_n++;
 	    }
-	    j++;
-	    /* repair new index */
-	    i=(i+1) % dmasize_in_longints; quadsthere-=1;
 	    /* check if max event mechanism is active */
 	    if (maxevents) {
 		currentevents++;
@@ -557,8 +463,101 @@ int process_quads(void *sourcebuffer, int startquad, int endquad) {
 		    return numberofquads;
 		}
 	    }
-	}
-
+	    return numberofquads;
+	    
+	    /* do first processing  in other cases */
+	case 1:case 2:
+	    i=startindex;
+	    j=0; /* start target index */ 
+	    for (quadsthere=numberofquads;
+		 quadsthere>1;
+		 quadsthere-=2,i=((i+2) % dmasize_in_longints)) {
+		/* extract coarse  val and check for consistency */
+		cv=events[i+1];
+		dv=events[i];
+		/* check for dummies - to be implemented ??*/
+		if (!(cv | dv)) { /* both are zero...indicates an error */
+		    fprintf(stderr,"err: double zero\n");
+		    continue;
+		}
+		
+		cvd=(cv>>16)-controltime_coarse+2; /* difference plus 2 */
+		/* for debugging stop */
+		if (cvd>4) {/* allow for approx 2 sec difference */
+		    fprintf(stderr, "timing out of range; cv=%d, control=%d, dv=%d, idx: %d\n",cv,controltime_coarse,events[i],i);
+		    /* continue; */
+		    if (markoption==1) markit+=0x10;
+		    /* FIXME: for debug: try not to realign 4-byte entities */
+		    /* quadsthere--;i=((i+1) % dmasize_in_longints); */
+		    continue;
+		} 
+		/* now we should be consistent. no mixing necessry anymore */ 
+		/* get first and second entry */
+		v1=((dv & 0xc000)>>12) | ((dv & 0x30000)>>16); /* event lines */
+		
+		fastcnt=(dv & 0x3e00)<<10;
+		if (markoption==0) 
+		    markit= (dv<<4); /* bring phase pattern in place */
+		/* construct lower significant u32, containing c0-c12, c_1..c_4, 
+		   and the event bits in the least significant nibble.
+		   order there: bit 3..0=inA..InD */
+		dv=(dv & 0xff000000) | /* bits c5..c12 */
+		    fastcnt | /* bits c0..c4 */
+		    phasetable[dv & 0x1ff] |  /* do phase interpolation */
+		    v1 | /* event lines */
+		    (markit & 0x1ff0);  /* for debugging */
+		
+		/* repair pipelining bug */
+		if ( (fastcnt < 0x00880000)) {
+		    b0=dv & 0x80000000; /* remember carry */
+		    dv+=0x01000000;
+		    if (b0 && !(dv & 0x80000000)) cv++; /* eventually do carry */
+		}
+		
+		if(timemode==1) {
+		    current_time = (((unsigned long long)cv) << 32) 
+			+ (unsigned long long)dv
+			/* correction for time skew of individual detectors */ 
+			+ dayoffset[dv&0xf];
+		    
+		    outbuf[j].cv=(unsigned int) (current_time >> 32);  
+		    outbuf[j].dv=(unsigned int) (current_time & 0xffffffff);
+		} 
+		else{
+		    outbuf[j].cv=cv; outbuf[j].dv=dv;
+		}
+		/* keep track of movin difference */
+		if (controltime_getmeone) {
+		    controltime_cv=cv; controltime_dv=dv;controltime_getmeone=0;
+		}
+		
+		if (trapmode) {
+		    trap_uval=cv>>9; /* time in units of 8ms */
+		    trap_diff=trap_uval-trap_old; trap_old=trap_uval;
+		    if (trap_n>1024) {
+			/* test if diffference exceeds 8 avg differences */
+			if ((trap_diff<0) || ((trap_diff*32)>trap_diffavg)) {
+			    /* we have an exception */
+			    j--;
+			    goto dontcount;
+			    
+			}
+		    }
+		    trap_diffavg += trap_diff-trap_diffavg/256;
+		dontcount: trap_n++;
+		}
+		j++;
+		
+		/* check if max event mechanism is active */
+	    if (maxevents) {
+		currentevents++;
+		if (currentevents==maxevents) {
+		    terminateflag=1;
+		    return numberofquads;
+		}
+	    }
+	    }
+	    
 	/* dump event */
 	switch (outmode) {
 	    case 1: /* output as binary values */
@@ -588,368 +587,346 @@ int process_quads(void *sourcebuffer, int startquad, int endquad) {
 	return numberofquads-quadsthere;
 	break;
 	
-      case 3: case 4: case 5: /* more text */
-	  
-	/* old version */ 
-	i=startindex;
-	for (quadsthere=numberofquads;
-	     quadsthere>1;
-	     quadsthere--,i=((i+1) % dmasize_in_longints)) {
-	    /* extract coarse val and check for consistency */
-	    cv=events[(i+1) % dmasize_in_longints];
-	    cvd=(cv>>16)-controltime_coarse+2; /* difference */
-	    if (cvd>4) continue;/* allow for 2 sec difference */
-
-
-	    /* now we should be consistent. no mixing necessry anymore */ 
-	    /* get first and second entry */
-	    dv=events[(i % dmasize_in_longints)];
-	    v1=((dv & 0xc000)>>12) | ((dv & 0x30000)>>16); /* event lines */
-	    // v2=(events[(i+1) % dmasize_in_longints] & 0xffff);
-	    fastcnt=(dv & 0x3e00)<<10;
-	    if (markoption==0) 
-		markit= (dv<<4); /* bring phase pattern in place */
-	    /* construct lower significant u32, containing c0-c12, c_1..c_4, 
-	       and the event bits in the least significant nibble.
-	       order there: bit 3..0=inA..InD */
-	    dv=(dv & 0xff000000) | /* bits c5..c12 */
-		fastcnt | /* bits c0..c4 */
-		phasetable[dv & 0x1ff] |  /* do phase interpolation */
-		v1 | /* event lines */
-                (markit & 0x1ff0);  /* for debugging */
-
-	    /* repair pipelining bug */
-	    if ( (fastcnt < 0x00880000)) {
-		b0=dv & 0x80000000; /* remember carry */
-		dv+=0x01000000;
-		if (b0 && !(dv & 0x80000000)) cv++; /* eventually do carry */
-	    }
-	    /* repair new index */
-	    i=(i+1) % dmasize_in_longints; quadsthere-=1;
-	    /* dump event */
-	    switch (outmode) {
-		case 3: /* output only phase pattern as decimal number */
-		    fprintf(stdout,"%d\n",dv & 0x1ff);
-		    break;
-		case 4: /* output as three space-separated hex patterns for
-			   msl, lsl, pattern */
-		    fprintf(stdout,"%08x %08x %04x\n",cv,dv,(dv & 0x1ff));
-		    break;
-	        case 5: /* output as three space-separated hex patterns for
-			   msl, lsl, pattern */
-		    fprintf(stdout,"%d %d %d\n",cv,dv,(dv & 0x1ff));
-		    break;
-	    }
-	    /* check if max event mechanism is active */
-	    if (maxevents) {
-		currentevents++;
-		if (currentevents==maxevents) {
-		    terminateflag=1;
-		    return numberofquads;
+	case 3: case 4: case 5: /* more text */
+	    
+	/* updated for cleaner indexing in USB card */ 
+	    i=startindex;
+	    for (quadsthere=numberofquads;
+		 quadsthere>1;
+		 quadsthere-=2,i=((i+2) % dmasize_in_longints)) {
+		/* extract coarse val and check for consistency */
+		cv=events[i+1]; /* part containing coarse timing */
+		dv=events[i]; /* part containing fine time, phase, det pattern */
+		
+		cvd=(cv>>16)-controltime_coarse+2; /* difference plus 2 secs*/
+		if (cvd>4) {/* allow for approx 2 sec difference */
+		    fprintf(stderr,"timing out of range; cv=%d, control=%d, dv=%d, idx: %d\n",cv,controltime_coarse,events[i],i);
+		    if (markoption==1) markit += 0x10;
+		}
+		/* get first and second entry */
+		v1=((dv & 0xc000)>>12) | ((dv & 0x30000)>>16); /* event lines */
+		
+		fastcnt=(dv & 0x3e00)<<10;
+		if (markoption==0) 
+		    markit= (dv<<4); /* bring phase pattern in place */
+		/* construct lower significant u32, containing c0-c12, c_1..c_4, 
+		   and the event bits in the least significant nibble.
+		   order there: bit 3..0=inA..InD */
+		dv=(dv & 0xff000000) | /* bits c5..c12 */
+		    fastcnt | /* bits c0..c4 */
+		    phasetable[dv & 0x1ff] |  /* do phase interpolation */
+		    v1 | /* event lines */
+		    (markit & 0x1ff0);  /* for debugging */
+		
+		/* repair pipelining bug */
+		if ( (fastcnt < 0x00880000)) {
+		    b0=dv & 0x80000000; /* remember carry */
+		    dv+=0x01000000;
+		    if (b0 && !(dv & 0x80000000)) cv++; /* eventually do carry */
+		}
+		
+		/* dump event */
+		switch (outmode) {
+		    case 3: /* output only phase pattern as decimal number */
+			fprintf(stdout,"%d\n",dv & 0x1ff);
+			break;
+		    case 4: /* output as three space-separated hex patterns for
+			       msl, lsl, pattern */
+			fprintf(stdout,"%08x %08x %04x\n",cv,dv,(dv & 0x1ff));
+			break;
+		    case 5: /* output as three space-separated hex patterns for
+			       msl, lsl, pattern */
+			fprintf(stdout,"%d %d %d\n",cv,dv,(dv & 0x1ff));
+			break;
+		}
+		/* check if max event mechanism is active */
+		if (maxevents) {
+		    currentevents++;
+		    if (currentevents==maxevents) {
+			terminateflag=1;
+			return numberofquads;
+		    }
 		}
 	    }
-	}
-	return numberofquads-quadsthere;
-  }
-  return -1; /* should never be reached */
+	    return numberofquads-quadsthere;
+    }
+    return -1; /* should never be reached */
 }
-
 
 int main(int argc, char *argv[]) {
-  int opt; /* for parsing command line options */
-  int verbosity_level = DEFAULT_VERBOSITY;
-  int input_treshold = DEFAULT_INPUT_TRESHOLD;
-  int fh; /* file handle for device file */
-  unsigned char *startad=NULL;  /* pointer to DMA buffer */
-  /* main loop structure */
-  int overflowflag;
-  int quadsread, quadsprocessed, oldquads;
-  int retval;
-  unsigned int bytesread=0;
-  int skew_value = DEFAULT_SKEW;
-  int calib_value = DEFAULT_CAL;
-  int coinc_value = DEFAULT_COINC;
-  int phase_patt = DEFAULT_PHASEPATT;
-  int clocksource = DEFAULT_CLOCKSOURCE;
-  int skewcorrectmode = DEFAULT_SKEWCORRECT;
-  int dskew[8], i; /* for skew correction */
-  int USBflushmode;  /* to toggle the flush mode of the firmware */
-  int usberrstat=0;
-
-  /* int *ob; */ /* for debug */
-
-  /* --------parsing arguments ---------------------------------- */
-  
-  opterr=0; /* be quiet when there are no options */
-  while ((opt=getopt(argc, argv, "t:q:rRAa:v:s:c:j:p:FiexS:m:d:D:")) != EOF) {
-      switch(opt) {
-	  case 'v': /* set verbosity level */
-	      sscanf(optarg,"%d",&verbosity_level);
-	      if ((verbosity_level<0) || (verbosity_level>MAX_VERBOSITY))
-		  return -emsg(1);
-	      break;
-	  case 't': /*set treshold value */
-	      sscanf(optarg,"%d",&input_treshold);
-	      if ((input_treshold<0)||(input_treshold>MAX_INP_TRESHOLD))
-		  return -emsg(2);
-	      break;
-	  case 'q': /* set max events for stopping */
-	      sscanf(optarg,"%d",&maxevents);
-	      if (maxevents<0) return -emsg(3);
-	      break;
-	  case 'a': /* set output mode */
-	      sscanf(optarg,"%d",&outmode);
-	      if ((outmode<0)||(outmode>5)) return -emsg(6);
-	      break;
-	  case 'r':
-	      beginmode=0; /* starts immediate data acquisition */
-	      break;
-	  case 'R':
-	      beginmode=1; /* goes into stoped mode after start */
-	      break;
-	  case 's': /* set skew value to other than default */
-	      sscanf(optarg,"%d",&skew_value);
-	      if ((skew_value<0)||(skew_value>MAX_SKEW_VALUE))
-		  return -emsg(9);
-	      break;
-	  case 'j': /* set calib value and swoitch on calib mode  */
-	      sscanf(optarg,"%d",&calib_value);
-	      calmode=1;
-	      if ((calib_value<0)||(calib_value>MAX_CAL_VALUE))
-		  return -emsg(10);
-	      break;
-	  case 'c': /* set coincidence value to other than default */
-	      sscanf(optarg,"%d",&coinc_value);
-	      if ((coinc_value<0)||(coinc_value>MAX_COINC_VALUE))
-		  return -emsg(11);
-	      break;
-	  case 'p': /* select phase pattern */
-	      sscanf(optarg,"%d",&phase_patt);
-	      if ((phase_patt<-1)||(phase_patt>MAX_PHASEPATT))
-		  return -emsg(12);
-	      break;
-	  case 'A': /* set absolute time */
-	      timemode=1;
-	      break;
-	  case 'F': /* switch flush on after every output */
-	      flushmode=1;
-	      break;
-	  case 'i': /* internal clock */
-	      clocksource = 0;
-	      break;
-	  case 'e': /* external clock */
-	      clocksource = 1;
-	      break;
-	  case 'x': /* suppress erratic events */
-	      trapmode = 1;
-	      break;
-	  case 'S': /* skip first few events */
-	      sscanf(optarg,"%d",&skipnumber);
-	      if (skipnumber<0) return -emsg(12);
-	      break;
-	  case 'm': /* defines usage of bits 4..14 in outword */
-	      sscanf(optarg,"%d",&markoption);
-	      if ((markoption<0) || (markoption >2)) return -emsg(13);
-	      break;
-	  case 'd': /* read in detector skews */
-	      if (4!=sscanf(optarg,"%d,%d,%d,%d", &dskew[0],&dskew[1],
-			    &dskew[2],&dskew[3])) return -emsg(14);
- 	      skewcorrectmode =1;
- 	      break;
-	  case 'D': /* read in detector skews for 8 detectors */
-	      i=sscanf(optarg,"%d,%d,%d,%d,%d,%d,%d,%d",
-		       &dskew[0],&dskew[1],&dskew[2],&dskew[3],
-		       &dskew[4],&dskew[5],&dskew[6],&dskew[7] );
-	      if (i<4) return -emsg(14);
-	      while (i<8) {
-		  dskew[i]=0;i++;
-	      }
- 	      skewcorrectmode = 2;
- 	      break;
-
-	  default:
-	      fprintf(stderr,"usage not correct. see source code.\n");
-	      return -emsg(0);
-      }
-  }
-  
-  /* initiate phasetable with defaults */
-  switch (phase_patt) {
-      case 0:
-	  initiate_phasetable(defaultpattern);
-	  break;
-      case 1:
-	  initiate_phasetable(pattern_rev_1);
-	  break;
-      case 2:
-	  initiate_phasetable(pattern_rev_2);
-	  break;
-      default:case -1:
-	  initiate_phasetable(nopattern);
-  }
-
-
-  /* ------------- initialize hardware  ---------------------*/
-  /* open device */
-  fh=open(usbtimetag_devicename,  O_RDWR);
-  if (fh<0) return -emsg(4);
-
-
-  /* initialize DMA buffer */
-  startad=mmap(NULL,size_dma,PROT_READ|PROT_WRITE, MAP_SHARED,fh,0);
-  if (startad==MAP_FAILED) return -emsg(5);
-
-  /* prepare device */
-  Reset_gadget(fh);
-
-  /* fudging: resets this the card? */
-  reset_slow_counter(fh); /* make sure to start at t=0 */
-
-
-  /* clear dma buffer */
-  /* for (i=0;i<size_dma;i++) startad[0]=0;
-     printf("DMA cleared.\n"); */
-
-  /* do timetag hardware init */
-  initialize_DAC(fh);
-  initialize_rfsource(fh);
-  set_DAC_channel(fh,0,coinc_value);    /* coincidence delay stage */
-  set_DAC_channel(fh,1,input_treshold); /* input reference */
-  set_DAC_channel(fh,2,calib_value);    /* calibration delay stage */
-  set_DAC_channel(fh,3,skew_value);     /* clock skew voltage */
-  /* choose 10 MHz clock source */
-  if (clocksource) {
-      rfsource_external_reference(fh);
-  } else {
-      rfsource_internal_reference(fh);
-  }
-
-  set_inhibit_line(fh,1); /* inhibit events for the moment */
-  set_calibration_line(fh,calmode?0:1); /* disable calibration pulse */
-  
-  initialize_FIFO(fh); /* do master reset */
-  handler_filehandle = fh;  /* tell irq hndler about file handle */
-
-  /* ------------ install IPC and timer signal handlers -----------*/
-  signal(SIGTERM, &termsig_handler);
-  signal(SIGKILL, &termsig_handler);
-  signal(SIGPIPE, &termsig_handler);
-
-  /* external user signals to start/stop DMA */
-  signal(SIGUSR1, &usersig_handler);
-  signal(SIGUSR2, &usersig_handler);
-  /* polling timer */
-  signal(SIGALRM, &timer_handler);
-
-  /* ------------- start acquisition - main loop ---------*/
-
-  terminateflag=0; overflowflag=0;
-  quadsprocessed=0; currentevents=0;
-  
-  //fifo_partial_reset(fh); /* is that necessary? */
-  start_dma(fh);
-  
-  usleep(50);
-
-  /* for checking timer consistency */
-  controltime_coarse=0; avg_diff=0;
-  controltime_cv=0;controltime_dv=0;controltime_getmeone=0;
-
-
-  /* This does not go down very well here and hangs the card.
-     Something wrong ? */
-  // reset_slow_counter(fh); /* make sure to start at t=0 */
-  dayoffset_1 = my_time();
-
-  /* prepare dayoffset table for different detectors */
-  for (i=0;i<16;i++) dayoffset[i]=dayoffset_1; /* unchanged */
-  switch (skewcorrectmode) {
-      case 2: /* we have 8 values */
-	  dayoffset[0x3]+=(((long long int) dskew[4])<<15); /* d5, lines 1-2 */
-	  dayoffset[0x6]+=(((long long int) dskew[5])<<15); /* d6, lines 2-3 */
-	  dayoffset[0xc]+=(((long long int) dskew[6])<<15); /* d7, lines 3-4 */
-	  dayoffset[0x9]+=(((long long int) dskew[7])<<15); /* d8, lines 4-1 */
-	  /* continue with the four old ones... */
-      case 1:
-	  for (i=0;i<4;i++) dayoffset[1<<i]+=(((long long int) dskew[i])<<15);
-	  break;
-  }
-  
-  setitimer(ITIMER_REAL, &newtimer,NULL);
-
-  if (!beginmode) set_inhibit_line(fh,0);  /* enable events to come in */
-
-  /* reminder: onequad is 4 bytes in usb mode, or 2 quads per event */
-  quadsread=0;oldquads=0; /* assume no bytes are read so far */
-  USBflushmode=0;  /* no flushing active */
-  do {
-      pause();
-      if (terminateflag) break;
-      
-      /* get number of arrived quads; all incremental, can roll over */
-      bytesread=ioctl(fh,Get_transferredbytes);
-      quadsread=bytesread/4; /* one quad is a 32 bit entry read 
-				in by the USB unit... */
-      
-      /* true overflow or irq error in internal linked buffer chain */
-      if (((quadsread-oldquads) &  QUADMASK2 ) || (bytesread & 0x80000000)) {
-	  usberrstat=ioctl(fh, Get_errstat);
-	  overflowflag=1;break;
-      }
+    int opt; /* for parsing command line options */
+    int verbosity_level = DEFAULT_VERBOSITY;
+    int input_treshold = DEFAULT_INPUT_TRESHOLD;
+    int fh; /* file handle for device file */
+    unsigned char *startad=NULL;  /* pointer to DMA buffer */
+    /* main loop structure */
+    int overflowflag;
+    int quadsread, quadsprocessed, oldquads;
+    int retval;
+    unsigned int bytesread=0;
+    int skew_value = DEFAULT_SKEW;
+    int calib_value = DEFAULT_CAL;
+    int coinc_value = DEFAULT_COINC;
+    int phase_patt = DEFAULT_PHASEPATT;
+    int clocksource = DEFAULT_CLOCKSOURCE;
+    int skewcorrectmode = DEFAULT_SKEWCORRECT;
+    int dskew[8], i; /* for skew correction */
+    int USBflushmode=0;  /* to toggle the flush mode of the firmware */
+    int usberrstat=0;
+    
+    /* --------parsing arguments ---------------------------------- */
+    
+    opterr=0; /* be quiet when there are no options */
+    while ((opt=getopt(argc, argv, "t:q:rRAa:v:s:c:j:p:FiexS:m:d:D:u")) != EOF) {
+	switch(opt) {
+	    case 'v': /* set verbosity level */
+		sscanf(optarg,"%d",&verbosity_level);
+		if ((verbosity_level<0) || (verbosity_level>MAX_VERBOSITY))
+		    return -emsg(1);
+		break;
+	    case 't': /*set treshold value */
+		sscanf(optarg,"%d",&input_treshold);
+		if ((input_treshold<0)||(input_treshold>MAX_INP_TRESHOLD))
+		    return -emsg(2);
+		break;
+	    case 'q': /* set max events for stopping */
+		sscanf(optarg,"%d",&maxevents);
+		if (maxevents<0) return -emsg(3);
+		break;
+	    case 'a': /* set output mode */
+		sscanf(optarg,"%d",&outmode);
+		if ((outmode<0)||(outmode>5)) return -emsg(6);
+		break;
+	    case 'r':
+		beginmode=0; /* starts immediate data acquisition */
+		break;
+	    case 'R':
+		beginmode=1; /* goes into stoped mode after start */
+		break;
+	    case 's': /* set skew value to other than default */
+		sscanf(optarg,"%d",&skew_value);
+		if ((skew_value<0)||(skew_value>MAX_SKEW_VALUE))
+		    return -emsg(9);
+		break;
+	    case 'j': /* set calib value and swoitch on calib mode  */
+		sscanf(optarg,"%d",&calib_value);
+		calmode=1;
+		if ((calib_value<0)||(calib_value>MAX_CAL_VALUE))
+		    return -emsg(10);
+		break;
+	    case 'c': /* set coincidence value to other than default */
+		sscanf(optarg,"%d",&coinc_value);
+		if ((coinc_value<0)||(coinc_value>MAX_COINC_VALUE))
+		    return -emsg(11);
+		break;
+	    case 'p': /* select phase pattern */
+		sscanf(optarg,"%d",&phase_patt);
+		if ((phase_patt<-1)||(phase_patt>MAX_PHASEPATT))
+		    return -emsg(12);
+		break;
+	    case 'A': /* set absolute time */
+		timemode=1;
+		break;
+	    case 'F': /* switch flush on after every output */
+		flushmode=1;
+		break;
+	    case 'i': /* internal clock */
+		clocksource = 0;
+		break;
+	    case 'e': /* external clock */
+		clocksource = 1;
+		break;
+	    case 'x': /* suppress erratic events */
+		trapmode = 1;
+		break;
+	    case 'S': /* skip first few events */
+		sscanf(optarg,"%d",&skipnumber);
+		if (skipnumber<0) return -emsg(12);
+		break;
+	    case 'm': /* defines usage of bits 4..14 in outword */
+		sscanf(optarg,"%d",&markoption);
+		if ((markoption<0) || (markoption >2)) return -emsg(13);
+		break;
+	    case 'd': /* read in detector skews */
+		if (4!=sscanf(optarg,"%d,%d,%d,%d", &dskew[0],&dskew[1],
+			      &dskew[2],&dskew[3])) return -emsg(14);
+		skewcorrectmode =1;
+		break;
+	    case 'D': /* read in detector skews for 8 detectors */
+		i=sscanf(optarg,"%d,%d,%d,%d,%d,%d,%d,%d",
+			 &dskew[0],&dskew[1],&dskew[2],&dskew[3],
+			 &dskew[4],&dskew[5],&dskew[6],&dskew[7] );
+		if (i<4) return -emsg(14);
+		while (i<8) {
+		    dskew[i]=0;i++;
+		}
+		skewcorrectmode = 2;
+		break;
+	    case 'u': /* switch on USB flushmode */
+		USBflushmode=1;
+		break;
+		
+	    default:
+		fprintf(stderr,"usage not correct. see source code.\n");
+		return -emsg(0);
+	}
+    }
+    
+    /* initiate phasetable with defaults */
+    switch (phase_patt) {
+	case 0:
+	    initiate_phasetable(defaultpattern);
+	    break;
+	case 1:
+	    initiate_phasetable(pattern_rev_1);
+	    break;
+	case 2:
+	    initiate_phasetable(pattern_rev_2);
+	    break;
+	default:case -1:
+	    initiate_phasetable(nopattern);
+    }
+    
+    
+    /* ------------- initialize hardware  ---------------------*/
+    /* open device */
+    fh=open(usbtimetag_devicename,  O_RDWR);
+    if (fh<0) return -emsg(4);
+    
+    
+    /* initialize DMA buffer */
+    startad=mmap(NULL,size_dma,PROT_READ|PROT_WRITE, MAP_SHARED,fh,0);
+    if (startad==MAP_FAILED) return -emsg(5);
+    
+    /* prepare device */
+    Reset_gadget(fh);
+    
+    /* fudging: resets this the card? */
+    reset_slow_counter(fh); /* make sure to start at t=0 */
+    
+    /* do timetag hardware init */
+    initialize_DAC(fh);
+    initialize_rfsource(fh);
+    set_DAC_channel(fh,0,coinc_value);    /* coincidence delay stage */
+    set_DAC_channel(fh,1,input_treshold); /* input reference */
+    set_DAC_channel(fh,2,calib_value);    /* calibration delay stage */
+    set_DAC_channel(fh,3,skew_value);     /* clock skew voltage */
+    /* choose 10 MHz clock source */
+    if (clocksource) {
+	rfsource_external_reference(fh);
+    } else {
+	rfsource_internal_reference(fh);
+    }
+    
+    set_inhibit_line(fh,1); /* inhibit events for the moment */
+    set_calibration_line(fh,calmode?0:1); /* disable calibration pulse */
+    
+    initialize_FIFO(fh); /* do master reset */
+    handler_filehandle = fh;  /* tell irq hndler about file handle */
+    
+    /* ------------ install IPC and timer signal handlers -----------*/
+    signal(SIGTERM, &termsig_handler);
+    signal(SIGKILL, &termsig_handler);
+    signal(SIGPIPE, &termsig_handler);
+    
+    /* external user signals to start/stop DMA */
+    signal(SIGUSR1, &usersig_handler);
+    signal(SIGUSR2, &usersig_handler);
+    /* polling timer */
+    signal(SIGALRM, &timer_handler);
+    
+    /* ------------- start acquisition - main loop ---------*/
+    
+    terminateflag=0; overflowflag=0;
+    quadsprocessed=0; currentevents=0;
+    
+    start_dma(fh);
+    
+    usleep(50);
+    
+    /* for checking timer consistency */
+    controltime_coarse=0; avg_diff=0;
+    controltime_cv=0;controltime_dv=0;controltime_getmeone=0;
+    
+    dayoffset_1 = my_time();
+    
+    /* prepare dayoffset table for different detectors */
+    for (i=0;i<16;i++) dayoffset[i]=dayoffset_1; /* unchanged */
+    switch (skewcorrectmode) {
+	case 2: /* we have 8 values */
+	    dayoffset[0x3]+=(((long long int) dskew[4])<<15); /* d5, lines 1-2 */
+	    dayoffset[0x6]+=(((long long int) dskew[5])<<15); /* d6, lines 2-3 */
+	    dayoffset[0xc]+=(((long long int) dskew[6])<<15); /* d7, lines 3-4 */
+	    dayoffset[0x9]+=(((long long int) dskew[7])<<15); /* d8, lines 4-1 */
+	    /* continue with the four old ones... */
+	case 1:
+	    for (i=0;i<4;i++) dayoffset[1<<i]+=(((long long int) dskew[i])<<15);
+	    break;
+    }
+    
+    setitimer(ITIMER_REAL, &newtimer,NULL);
+    
+    if (!beginmode) set_inhibit_line(fh,0);  /* enable events to come in */
+    
+    /* reminder: onequad is 4 bytes in usb mode, or 2 quads per event */
+    quadsread=0;oldquads=0; /* assume no bytes are read so far */
+    
+    do {
+	pause();
+	if (terminateflag) break;
+	
+	/* get number of arrived quads; all incremental, can roll over */
+	bytesread=ioctl(fh,Get_transferredbytes);
+	quadsread=bytesread/4; /* one quad is a 32 bit entry read 
+				  in by the USB unit... */
+	
+	/* true overflow or irq error in internal linked buffer chain */
+	if (((quadsread-oldquads) &  QUADMASK2 ) || (bytesread & 0x80000000)) {
+	    usberrstat=ioctl(fh, Get_errstat);
+	    overflowflag=1;break;
+	}
 #ifdef USBFLUSHHELPER
-      /* switch on flush mode if there is no data */
-      if (oldquads==quadsread) {
-	  if (!USBflushmode) {
-	      printf("usb will flush\n");
-	      usb_flushmode(fh,50); /* 500 msec */
-	      USBflushmode=1;
-	  }
-      } else if (USBflushmode) { /* we are in this mode */
-	  if (quadsread-oldquads>8) { /* we see stuff coming again */
-	      printf("usb flush stop\n");
-	      usb_flushmode(fh,0); /* switch off flushmode */
-	      USBflushmode=0;
-	  }
-      }
+	/* switch on flush mode if there is no data */
+	if (oldquads==quadsread) {
+	    if (!USBflushmode) {
+		usb_flushmode(fh,50); /* 500 msec */
+		USBflushmode=1;
+	    }
+	} else if (USBflushmode) { /* we are in this mode */
+	    if (quadsread-oldquads>8) { /* we see stuff coming again */
+		usb_flushmode(fh,0); /* switch off flushmode */
+		USBflushmode=0;
+	    }
+	}
 #endif
-      oldquads=quadsread;
-      /* do processing */
-      retval=process_quads(startad,quadsprocessed, quadsread);
-      if (retval<0) {
-	  overflowflag=2;
-      } else {
-	  quadsprocessed+=retval;
-      };
-      
-  } while ( !terminateflag &&  !overflowflag);
-  
-
-  /* ----- the end ---------- */
-  setitimer(ITIMER_REAL, &stoptime,NULL); /* switch off timer */
-  set_inhibit_line(fh,1);
-  stop_dma(fh);
-  close(fh);
-  
-  /* error messages */
-  switch (overflowflag) {
-      case 1:
-	  fprintf(stderr,
-		  "bytes: %x quadsread: %x, oldquads: %x, procesed: %x\n",
-		  bytesread, quadsread, oldquads, quadsprocessed);
-
-	  fprintf(stderr,"USB error stat: %d\n",usberrstat);
-	  return -emsg(7);
-      case 2: return -emsg(8);
-  }
-  return 0;
+	oldquads=quadsread;
+	/* do processing */
+	retval=process_quads(startad,quadsprocessed, quadsread);
+	if (retval<0) {
+	    overflowflag=2;
+	} else {
+	    quadsprocessed+=retval;
+	};
+	
+    } while ( !terminateflag &&  !overflowflag);
+    
+    
+    /* ----- the end ---------- */
+    setitimer(ITIMER_REAL, &stoptime,NULL); /* switch off timer */
+    set_inhibit_line(fh,1);
+    stop_dma(fh);
+    close(fh);
+    
+    /* error messages */
+    switch (overflowflag) {
+	case 1:
+	    fprintf(stderr,
+		    "bytes: %x quadsread: %x, oldquads: %x, procesed: %x\n",
+		    bytesread, quadsread, oldquads, quadsprocessed);
+	    
+	    fprintf(stderr,"USB error stat: %d\n",usberrstat);
+	    return -emsg(7);
+	case 2: return -emsg(8);
+    }
+    return 0;
 }
-
-
-
-
-
-
-
-
-
-
