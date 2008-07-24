@@ -24,4 +24,6 @@ Other files and information necessary to understand this better:
 3. USB device driver for the timestamp card, in usbtimetagdriver directory
 
 
-First version 17.12.06, consolidated 25.2.08
+First version 17.12.06
+consolidated 25.2.08
+repaired usb flush option in common version 24.7.08
