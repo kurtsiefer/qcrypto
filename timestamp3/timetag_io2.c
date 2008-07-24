@@ -3,7 +3,7 @@
 		   contains the hardware near code for the USB version of
 		   the unit Version as of 20071228.
 
- Copyright (C) 2005-2007 Christian Kurtsiefer, National University
+ Copyright (C) 2005-2008 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -22,9 +22,10 @@
 
 --
 
-   routines that contain close-to hardware routines to talk to the 
-   timestamp card.  Version for the USB version. based on the version for
-   the nudaq card. 
+   companion to timestamp3.c, contains close-to hardware routines to 
+   talk to the timestamp card.  This code for the USB timestamp card is 
+   based on previous code interfacing to the timestamp card attached to a 
+   nudaq PCI7200 parallel input card. 
 
 */
 

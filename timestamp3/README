@@ -1,3 +1,27 @@
-This is a usb version of the readevents program. First version 17.12.06
-Modified version to accept more counts 26.2.07chk
-fixed bit errors and wrong int/ext clk selection 24.3.07chk
+This is a usb version of the readevents program, generating a stream of
+consolidated timestamp events from a timestamp card. This program is the
+interface to a timestamp card, cleans up some bitorder issues and allows to
+add detector time skews and/or a correction to a system time of the host 
+PC. The description of the functionality is contained in the main code file,
+readevents3.c
+
+Files contained in this directory:
+
+readevents3.c      main code for timestamp card reader
+timetag_io2.c	   functions close to the hardware 
+timetag_io2.h      header definition for main program
+usbtimetagio.h     definitions of commands used both for ioctls() to the
+                   device driver and to the firmware in the USB timestamp card
+makefile	   
+
+Other files and information necessary to understand this better:
+
+1. Circuit diagram, functional description of the timestamp card
+
+2. Firmware of the USB interface, based on a Cypress FX2 chip. Code in
+   directory sdcc/test3, program tp_7.c and friends. Needs serious cleanup.
+
+3. USB device driver for the timestamp card, in usbtimetagdriver directory
+
+
+First version 17.12.06, consolidated 25.2.08
