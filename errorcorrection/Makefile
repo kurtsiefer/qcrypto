@@ -11,5 +11,5 @@ ecd2: ecd2.o rnd.o
 
 clean:
 	rm -f *.o
-	rm *~
+	rm -f *~
 	rm ecd2
