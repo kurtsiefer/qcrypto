@@ -4,7 +4,7 @@ timetag_io2.o: timetag_io2.c
 	gcc -Wall -O2 -UDEBUG -c timetag_io2.c
 
 readevents3: readevents3.c timetag_io2.o
-	gcc -Wall -lm -O2 -o readevents3 timetag_io2.o readevents3.c 
+	gcc -Wall -lm -O2 -o readevents3 timetag_io2.o readevents3.c
 
 .PHONY: clean
 clean:

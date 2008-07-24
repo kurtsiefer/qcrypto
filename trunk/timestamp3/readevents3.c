@@ -162,6 +162,7 @@
    - confirmed working at <4Mevents/sec on true fast USB port
    - fixed missing bits and wrong int/ext selection chk240307
    - some cleanup, propagated indexin into out options 3,4,5  25.2.08chk
+   - cleanup of usb flush option call
 
 
    ToDo:
@@ -188,9 +189,6 @@
 
 #include "timetag_io2.h"
 #include "usbtimetagio.h"
-
-/* play with flush mode */
-#define USBFLUSHHELPER
 
 
 /* default settings */
@@ -672,6 +670,7 @@ int main(int argc, char *argv[]) {
     int skewcorrectmode = DEFAULT_SKEWCORRECT;
     int dskew[8], i; /* for skew correction */
     int USBflushmode=0;  /* to toggle the flush mode of the firmware */
+    int USBflushoption=0; /* indicates activated flush option */
     int usberrstat=0;
     
     /* --------parsing arguments ---------------------------------- */
@@ -763,7 +762,7 @@ int main(int argc, char *argv[]) {
 		skewcorrectmode = 2;
 		break;
 	    case 'u': /* switch on USB flushmode */
-		USBflushmode=1;
+		USBflushoption=1;
 		break;
 		
 	    default:
@@ -885,20 +884,22 @@ int main(int argc, char *argv[]) {
 	    usberrstat=ioctl(fh, Get_errstat);
 	    overflowflag=1;break;
 	}
-#ifdef USBFLUSHHELPER
-	/* switch on flush mode if there is no data */
-	if (oldquads==quadsread) {
-	    if (!USBflushmode) {
-		usb_flushmode(fh,50); /* 500 msec */
-		USBflushmode=1;
-	    }
-	} else if (USBflushmode) { /* we are in this mode */
-	    if (quadsread-oldquads>8) { /* we see stuff coming again */
-		usb_flushmode(fh,0); /* switch off flushmode */
-		USBflushmode=0;
+
+	if (USBflushoption) {
+	    /* switch on flush mode if there is no data */
+	    if (oldquads==quadsread) {
+		if (!USBflushmode) {
+		    usb_flushmode(fh,50); /* 500 msec */
+		    USBflushmode=1;
+		}
+	    } else if (USBflushmode) { /* we are in this mode */
+		if (quadsread-oldquads>8) { /* we see stuff coming again */
+		    usb_flushmode(fh,0); /* switch off flushmode */
+		    USBflushmode=0;
+		}
 	    }
 	}
-#endif
+
 	oldquads=quadsread;
 	/* do processing */
 	retval=process_quads(startad,quadsprocessed, quadsread);
