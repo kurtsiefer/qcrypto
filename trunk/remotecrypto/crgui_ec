@@ -1,5 +1,5 @@
 #!/usr/bin/wish
-#
+
 # script to provide a gui interface to the crypto components
 #
 #
@@ -23,7 +23,7 @@
 
 # global definitions and defaults
 set dataroot "/tmp/cryptostuff"
-set programroot "/home/qitlab/programs/remotecrypto"
+set programroot [pwd] ; # to make it work on various machines
 set gnucontrol "$dataroot/monitor.gnu" ; # for gnu file
 set gnucanvas  "$dataroot/gcan" ; # canvas file
 set diagdatafile "$dataroot/diagdata" ; # for storing diagnosis data
@@ -109,6 +109,7 @@ if {[file exists $localparamfile]} {
 # procedures to prepare the standard directories
 proc makedirectories {} {
     global dataroot debugval
+    global diagdatafile diagdatafile3
     if {![file exists $dataroot]} { ; # need to create master dir
 	file mkdir $dataroot
     } elseif {![file isdirectory $dataroot] } {
@@ -132,6 +133,10 @@ proc makedirectories {} {
 	    exec mkfifo $d
 	}
     }
+    # prepare the gnuplot files 
+    upgs
+    exec echo " " > $diagdatafile
+    exec echo " " > $diagdatafile3
 
 }
 # procedures to contact the other side
@@ -477,7 +482,7 @@ proc measurelocalcountrate {} { # measure local count rate with real hardware
     set localcountrate "--"
     set a [open $dataroot/rawevents r+]
     # read $a
-    set y [exec $programroot/readevents -a 1 -F -e -S 20 | $programroot/getrate > $dataroot/rawevents & ]
+    set y [exec $programroot/readevents -a 1 -F -u -e -S 20 | $programroot/getrate > $dataroot/rawevents & ]
     set localcountrate [gets $a]
     close $a
     set b [lindex $y 0]
@@ -510,7 +515,7 @@ proc startinputpart1 {} {
     set chopperpid [exec $programroot/chopper -i $dataroot/rawevents -D $dataroot/sendfiles -d $dataroot/t3 -l $dataroot/t2logpipe -V 4 -U -p $proto -Q  5 -F -y 20 -m $maxeventdiff 2>>$dataroot/choppererror & ]
 
     # start readevents but keep passive
-    set readerpid [exec $programroot/readevents -a 1 -R -A -e -S 20 -F $detcorrection > $dataroot/rawevents 2>>$dataroot/readeventserror & ]
+    set readerpid [exec $programroot/readevents -a 1 -R -A -e -S 20 $detcorrection > $dataroot/rawevents 2>>$dataroot/readeventserror & ]
     set locstat "transmitter ok" ; update
 }
 # shutdown reader/chopper
@@ -575,7 +580,7 @@ proc startinputpart2 {} {
     fileevent $t1logpipe readable t1logactivity
     set chopperpid [exec $programroot/chopper2 -i $dataroot/rawevents -l $dataroot/t1logpipe -V 3 -D $dataroot/t1 -U -F -m $maxeventdiff &]
 #    set debugval "point2>$chopperpid<" ; update
-    set readerpid [exec $programroot/readevents -a 1 -R -A -e -S 20 -F $detcorrection > $dataroot/rawevents 2>>$dataroot/readeventserror &]
+    set readerpid [exec $programroot/readevents -a 1 -R -A -e -S 20 $detcorrection > $dataroot/rawevents 2>>$dataroot/readeventserror &]
     update ; # temporary
 }
 #end 
@@ -900,7 +905,7 @@ proc startsinglecount {} {
 
     # start readevents / counterchain
     set counterpid [exec $programroot/getrate -i $dataroot/rawevents  -n 0 -s  > $dataroot/cntlogpipe & ]
-    set readerpid [exec $programroot/readevents -a 1 -A -e -S 20 -F  > $dataroot/rawevents & ]
+    set readerpid [exec $programroot/readevents -a 1 -A -e -S 20 -F -u > $dataroot/rawevents & ]
 }
 
 proc stopsinglecount {} {
