@@ -49,6 +49,8 @@
   added -s and -n option and modified code to work for this 120206chk
   tried to make -n option fast to cope w high count rates 220206chk
   tested up to 350k events / epoch
+  backported an error in free from getrate2.c 250708chk
+
 
 */
 
@@ -226,7 +228,7 @@ int main (int argc, char *argv[]) {
 	
     } while ((--numofrounds)!=0);
     
-    free(inbuf);
+    free(ibfraw);
     fclose(outhandle);
     fclose(inhandle);
     return 0;
