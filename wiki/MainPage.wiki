@@ -1,5 +1,6 @@
-#summary Temporary introduction page. Needs more editing
+#summary Introduction page
 
+To Do : links to other local wiki pages, references
 = Introduction =
 There is tons of good explanations out in web space what quantum key distribution is about, what is promises, what the physics behind that is and all of that. You will find nothing of that in these pages.
 
@@ -45,3 +46,8 @@ The different pieces of code are:
 
 = Code availability =
 Code is available as a tarball in a historical (but working!) version, and a svn containing reasonably consolidated code in use in our labs right now.
+
+= References =
+(1) General introduction to quantum key distribution
+
+(2) CASCADE scheme, sugimoto implement
