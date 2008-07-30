@@ -1,12 +1,38 @@
-#summary Synchronization algorithm
+#summary Synchronization algorithm, background behind pfind code
 = Introduction =
 
-Add your content here.
+A critical task in measurement-based quantum key distribution is to identify photodetection events from the same birth process, leading to the correlated measurement results necessary to bulid up key.
 
+That physical reason apart, the task is to find correlated photodetection events on two remote sites, where the signal is immersed in a huge number of photodetection events which are not connected with photon pairs. We identify them by their remote temporal coincidence in the costream code, and for that process, an initial time difference between the two sides needs to be known, preferrably with an accuracy of about one nanosecond.
 
-= Details =
+The two sides use normal NTP clock synchronization between the CPUs, but that protocol does not easily allow for synchronization down to that accuracy. We therefore need an algorithm to find this time difference.
 
-Add your content here.  Format your content with:
-  * Text in *bold* or _italic_
-  * Headings, paragraphs, and lists
-  * Automatic links to other wiki pages
+= Algorithm =
+The time difference finding is based on the evaluation of a cross-correlation function between the two detector timing streams, which show a pronounced peak at the clock searched difference. Noisy background events on both sides are typically uncorrelated in time, and lead to a homogenous background.
+
+The code evaluates the cross correlation function ccf(tau) via three Fourier transformations via
+  _ccf(tau)=F^-1^[F[d,,1,,(t)] x F^*^[d,,2,,(t)]_ ,
+and finds the peak loaction in _ccf(tau)_. The time resolution necessary is 1ns, the normal NTP/PC-based timing uncertainty was assumed to be about +/-250 ms. This would require the evaluation of _ccf(tau)_ for about 10^8^ to 10^9^ entries, which is an unrealistically complex task for the PCs used for QKD.
+
+We therefore split up the difference finding in a coarse and fine timing part, so the necessary 27..30 bit of timing information gets distributed into two timing finding problems with only 14..16 bits or 10^4^ to 10^5^ elements in the Fourier transformations each.
+
+Since the signal/noise ratio in the peak finding problem for a given pair and background event rate decreases with smaller Fourier ensembles, we choose two overlapping time scales with 17 to 20 bit each to obtain the difference with an acceptable confidence. Fourier transformations of that size are easily managable even on very light CPU systems.
+
+Further segmentation in smaller and smaller problems to perhaps reflect the spirit of the Cooley-Turkey FFT idea  did not work out in practice, since the background noise renders the peak finding problem unreliable.
+ 
+= Implementation of the algorithm =
+sparse population of event line, wrap-around for longer sequences (to be written)
+
+= Confidence estimation of a given time difference =
+How estimated, how likely is a found peak for a given Peak/noise ratio (to eb written)
+
+= Code aspects =
+
+usage of fft3 (to be written)
+
+= Future work =
+Currently, this code needs a frequency matching of the two local reference oscillators within 10^-9^. This is a frequency pairing which can currently only be accomplished using Rb reference oscillators, or broadcasted copies of atomic clock references such as GPS receiving systems.
+
+While Rb oscillators are reasonably easy available, and GPS receivers by now are almost a consumer item, it still requires a hardware complexity which is not necessitated by the problem: There should be enough information content in the two timing data sets to extract not only a time difference, but also a frequency difference between two local clocks.
+
+Caleb Basil Ho is currently working on such an algorithm, which should eventually allow to use consumer-grade crystal oscillators with a long term stability and accuracy of 10-100ppm; the necessary short term stability for this information being extractable should be good enough.
