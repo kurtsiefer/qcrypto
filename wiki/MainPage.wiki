@@ -19,6 +19,29 @@ Also probably helpful: A set of measurement data files to be able to play with t
 
 (to come: hardware description, circuits, flow diagrams)
 
-= Details =
+= Communication structure = 
+Explanation what data goes where, how the information flow is in our qkd scenario. Reference to file format wiki page. 
 
+There is a vast amount of communication necessary to identify those corresponding photon pairs out of a sea of noise which eventually lead to a useful key. The layout of the data flow tries to generate as little communication as possible, and encode it in a reasonably efficient way both in terms of size and packing/unpacking effort.
+
+All communication takes place asynchronously to avoid problems with communication latency, and to eventually optimize packaged processing optimization by processor cache utilization. Once a photdetection event has entered the primary fifo in the hardware, the system should not rely on a certain reaction time.
+
+All communication is tied to a time structure of photodetection events, which allows to identify when a certain measurement leading to key data was generated. See also the summary on timing conventions used (to be written).
+
+= Code structure =
+Various communication and processing tasks are distributed to a various pieces of code, which can be run and modified independently. Communication between different idependent program snippets is established either via pipes, or files in directories with are written, read or deleted by various programs.  This allows a segmented testing of various components, and a simple way of documenting the whole data flow. It is lean on storage and disk read/write requirements if a reasonably modern cache system on the temporary storage space is in place. Hardly any file makes it onto a physical medium in 'normal' operation.
+
+The different pieces of code are:
+* *readevents* : The front end program interfacing the time stamp unit. Generates a stream of detection events, each encoding what detector or detector combination (in a 4 bit space) fired at which time. Each event has a timing resolution of nominal 125ps to match currently (2000-2008) available standard silicon avalanche photodiodes with a timing uncertainty around 300-700ps. Time is reported with 49 bit resolution, a rollover takes place after about 19 hours. This program ties at the moment to a USB device driver, and used ot be connected to a Nudaq-PCI7200 parallel input card.
+* *chopper*: Segments the raw timing/detector data on ones side into information which is transmitted (timing, measurement basis), and stores the private part of the information locally. Partitions the timing information into chunks of epochs (2^29^ nanoseconds or 2^32^ elementary time steps), and performs transport compression into *t1 files*.
+* *chopper2*: Segments the raw timing/detector data on the other side, but does no compression since the main data reduction process in the coincidence identification will be processed on this side.
+* *pfind*: This piece of code is used to find an initial time difference netween the reference clocks or timing units on both sides. It performs a cross-correlation on the detector timing events for that purpose on data collected for a few seconds. This piece of code currently requires local clocks with a relative frequency difference on the order of 10^-9^. Returns a time difference within a range of 2^29^ns, and a confidence estimator to  evaluate the success of the correlation finding on a short and long time scale.
+* *costream*: the piece of code which in a steady-state operation handles the coincidence identification to reject photoevents which do not correspond to matched pairs, and generates message packets (_t4 files_) to the other side aboout successful bit identifications, possibly a matching measurement base, depending on the implemented protocol. Leaves behind locally a _t3 type_ raw key file, and generates various monitoring output streams (coincidence rates, accidental coincidences, strange pair events etc)
+* *splicer*: Code on the side which was transmitting its timing information (by running *chopper*) which joins the response from the coincidence identification in form of _t4 files_) and the locally kept private information about the initial measurement results, stored in a _t3 file_. Generates the raw key on this side into a corresponding _t3 file_.
+* *transferd*: All classical communication gets currently transported through a single TCP port. To coordinte this bidirectional communication, which includes transfer of files, error correction messages and shrot plaintext ASCII messages between the controlling framework, an identical copy of *transferd* runs in the background on each side, and gets instructed to transfer files via command pipes from various other programs. This would be the place to put a classical communication authentication in.
+* *ecd2*: This is the error correction code, running on each side and digesting correspondig groups of raw key packets for error correction and privacy amplification. This code implements more or less a CASCADE/Binary error correction scheme and some continuous sevoing/error estimation to optimize error correction comunication. It keeps track of the revealed bits in that communication, and performs the compression of the erro r-free key into a finally, hopefully secure key by estimating the knowledge of an eavesdropper in ways depending on the implenented protocol.
+* *crgui_ec*: An insanely messy glue script with a graphical surface to tie all components together and to allow a halfway structured parameter choice, and easy alignment of the communication channel.
+* Various helper programs
+
+= Code availability =
 Code is available as a tarball in a historical (but working!) version, and a svn containing reasonably consolidated code in use in our labs right now.
