@@ -1,8 +1,11 @@
 #summary Temporary introduction page. Needs more editing
 
 = Introduction =
+There is tons of good explanations out in web space what quantum key distribution is about, what is promises, what the physics behind that is and all of that. You will find nothing of that in these pages.
 
-This is the repository for the source code used in quantum key distribution, from key generation in from time-stamped data to error correction and privacy amplification.
+This is the repository for the source code used in quantum key distribution in a particular implementation, from key generation in from time-stamped photodetector data to error correction and privacy amplification.
+
+If you want to implement the complete scheme yourself, you would need to build (or buy) a entangled photon pair source (not too much effort anymore), and a single photon sensitive detector system capable to measure polarization of photons in two orthogonal bases (e.g. one basis: horizontal/vertical,  the other basis left/right circular, or +/- 45degree linear).
 
 The code was designed to work with entanglement-based pair detection schemes, either implementing a BB84-type protocol, or an Ekert-91 protocol, which we (Centre for Quantum Technologies at the National University of Singapore) used for our implementations.
 
@@ -10,13 +13,12 @@ The code is mostly ANSI C, typically compiled with current (2007) gcc versions.
 
 Discussions on implementation details/problems/leaks are highly welcome, and should ultimately lead to an openly available implementation of a QKD scheme which hopefully has less open security problems than implementations using proprietary code.
 
-In an initial phase, we will deposit code which has been running on specific linux systems in our labs, and definitions of file formats and hardware.
+At the moment, we have deposited code which has been running on vsrious linux systems in our labs, and definitions of file formats (needs to be transferred into wiki) and hardware. We have graphical meterial in flowcharts, but I need to find out how to include that here.
 
-(to come: hardware description, circuits)
+Also probably helpful: A set of measurement data files to be able to play with the code, try attack strategies etc. This is quite space consuming, we need to host that off-site.
 
+(to come: hardware description, circuits, flow diagrams)
 
 = Details =
 
-Code is available as a tarball in an old version, and a svn in a state of consolidation.
-
-Christian
+Code is available as a tarball in a historical (but working!) version, and a svn containing reasonably consolidated code in use in our labs right now.
