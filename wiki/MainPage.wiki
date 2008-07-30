@@ -1,4 +1,4 @@
-#summary Introduction page
+#summary Introduction, discussion of general code structure
 
 To Do : links to other local wiki pages, references
 = Introduction =
