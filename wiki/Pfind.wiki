@@ -10,7 +10,7 @@ The two sides use normal NTP clock synchronization between the CPUs, but that pr
 = Algorithm =
 The time difference finding is based on the evaluation of a cross-correlation function between the two detector timing streams, which show a pronounced peak at the clock searched difference. Noisy background events on both sides are typically uncorrelated in time, and lead to a homogenous background.
 
-The code evaluates the cross correlation function ccf(tau) via three Fourier transformations via
+The code evaluates the cross correlation function _ccf(tau)_ via three Fourier transformations via
   _ccf(tau)=F^-1^[F[d,,1,,(t)] x F^*^[d,,2,,(t)]_ ,
 and finds the peak loaction in _ccf(tau)_. The time resolution necessary is 1ns, the normal NTP/PC-based timing uncertainty was assumed to be about +/-250 ms. This would require the evaluation of _ccf(tau)_ for about 10^8^ to 10^9^ entries, which is an unrealistically complex task for the PCs used for QKD.
 
