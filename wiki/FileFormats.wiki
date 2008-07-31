@@ -44,7 +44,7 @@ compare timestamps with a raw accuracy supplied by their local clocks.
 All subsequent data will be partitioned, transferred and processed according
 to epoch. An epoch is defined by all events with the same most significant 17
 bits of raw timing information. That will correspond to a time span of
-2^(49-17)^*1/8 nsec = 2^29^ nsec approx 537 msec. For the numbering of an epoch
+2^(49-17)^ times 1/8 nsec = 2^29^ nsec approx 537 msec. For the numbering of an epoch
 there are two possibilities:
 the first one takes the epoch just as the most significant 17 bits of the
 timing event. An epoch is a unsigned 32bit wide integer type, and the least
