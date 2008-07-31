@@ -31,7 +31,7 @@ struct dataelement {
 
 The internal counter is segmented in a 5 bit wide fast counter running at 500 MHz, and a 40 bit wide slow counter, running at 500 MHz / 2^5^ = 15.625 MHz.
 
-*Bit values:*
+==Bit values:==
 || cv[31:0] || most significant bits c44..c13 of the sampled counter state||
 || dv[31:24] || bits c12..c5 of the sampled counter state||
 || dv[23:18] || not used, read status undefined ||
@@ -40,7 +40,9 @@ The internal counter is segmented in a 5 bit wide fast counter running at 500 MH
 || dv[ 15 ] || sampled state of detector line A || 
 || dv[ 14 ] || sampled state of detector line B || 
 || dv[13:9] || bits c4..c0 of the sampled counter state||
-|| dv[8:0] || phase interpolation sample state||
+|| dv[8:0] || phase interpolation sample state ||
+
+.
 
 = Known issues =
 Due to some polarity errors in clock handover form the fast counter to the slow counter, there is a correction necessary to see a monotoneous increase in the reported time with real time of events.
