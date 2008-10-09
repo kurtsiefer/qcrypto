@@ -1,8 +1,4 @@
-all:   ffind chopper chopper2 pfind decompress costream splicer diagnosis transferd  getrate diagbb84
-
-
-ffind: ffind.c
-	gcc -Wall -O3 -o ffind ffind.c -lfftw3 -lm
+all:   chopper chopper2 pfind decompress costream splicer diagnosis transferd  getrate diagbb84
 
 chopper: chopper.c
 	gcc -Wall -O3 -o chopper chopper.c -lm
@@ -36,7 +32,6 @@ getrate: getrate.c
 
 
 clean:
-	rm -f ffind
 	rm -f chopper
 	rm -f chopper2
 	rm -f pfind
