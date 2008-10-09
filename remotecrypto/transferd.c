@@ -22,7 +22,7 @@
 --
 
 
-/* program to arrange for file transfer from one machine to the other. This is
+   program to arrange for file transfer from one machine to the other. This is
    taking care of the sockets between two machines. Each machine has a version
    of it running. This deamon listens to a command port for file names to be
    transferred, which are specified relative to a initially agreed directory,
