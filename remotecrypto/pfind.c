@@ -157,7 +157,7 @@ typedef struct rawevent {unsigned int cv; /* most significan word */
     unsigned int dv; /* least sig word */} re;
 
 /* error handling */
-char *errormessage[] = {
+char *errormessage[31] = {
   "No error.",
   "Error reading in verbosity argument.", /* 1 */
   "Error reading file/directory name for type-2 packets.",
@@ -189,8 +189,8 @@ char *errormessage[] = {
   "wrong stream type detected when looking for stream-2.",
   "cannot parse buffer bit width",
   "FFT size order out of range (must be 12..23)", /* 30 */
-
 };
+
 int emsg(int code) {
   fprintf(stderr,"%s\n",errormessage[code]);
   return code;
@@ -376,13 +376,13 @@ int main (int argc, char *argv[]) {
 		break;
 	    case 'i': case 'd': /* stream2 name and type */
 		if (1!=sscanf(optarg,FNAMFORMAT,fname2)) return -emsg(2);
-		fname2[FNAMELENGTH]=0;  /* security termination */
+		fname2[FNAMELENGTH-1]=0;  /* security termination */
 		if (type2mode) return -emsg(3); /* already defined mode */
 		if (opt=='i') type2mode=1; else type2mode=2;
 		break;
 	    case 'I': case 'D': /* stream-1 name and type */
 		if (1!=sscanf(optarg,FNAMFORMAT,fname1)) return -emsg(4);
-		fname1[FNAMELENGTH]=0;  /* security termination */
+		fname1[FNAMELENGTH-1]=0;  /* security termination */
 		if (type1mode) return -emsg(5); /* already defined mode */
 		if (opt=='I') type1mode=1; else type1mode=2;
 		break;
@@ -407,7 +407,7 @@ int main (int argc, char *argv[]) {
 		break;
 	    case 'l': /* logfile name */
 		if (sscanf(optarg,FNAMFORMAT,logfname) != 1) return -emsg(10);
-		logfname[FNAMELENGTH]=0;  /* security termination */
+		logfname[FNAMELENGTH-1]=0;  /* security termination */
 		break;
 	    case 'q': /* get buffer order */
 		if (sscanf(optarg,"%d",&buf_bitwidth) != 1) return -emsg(29);
@@ -667,7 +667,7 @@ int main (int argc, char *argv[]) {
     /* open log files */
     if (logfname[0]) { /* check if filename is defined */
 	loghandle=fopen(logfname,"a");
-	if (!loghandle) return -emsg(32);
+	if (!loghandle) return -emsg(26);
     } else { loghandle = stdout;}
     
     switch (verbosity_level) {

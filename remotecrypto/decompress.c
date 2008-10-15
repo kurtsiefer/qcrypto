@@ -20,7 +20,7 @@
  Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 --
-/* program to test the decompressor for t2 files.
+ program to test the decompressor for t2 files.
 
 usage: decompress filename
 
