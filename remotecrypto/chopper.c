@@ -225,6 +225,7 @@ char *errormessage[] = {
   "cannot write type-2 data",
   "cannot write type-3 header",
   "cannot write type-3 data",
+  "empty error message to fill up list",
   "error reading protocol number", /* 25 */
   "protocol index out of range",
   "cannot malloc pattern table",
@@ -236,8 +237,8 @@ char *errormessage[] = {
   "error reading ignorecount argument",
   "ignoecounts  less than 0",
   "error reading max time difference value (must be >=0)", /* 35 */
+};
 
- };
 int emsg(int code) {
   fprintf(stderr,"%s\n",errormessage[code]);
   return code;
@@ -319,6 +320,12 @@ int open_epoch(unsigned int te) {
 	overlay = ((aepoc >>15) & 3 )| /* from absolute epoc */
 	    ((te >>13) & 0xc); /* from timestamp epoc */
 	finalepoc = (aepoc & 0xfffe0000) + te + overlay_correction[overlay];
+	if (overlay_correction[overlay])  {
+	    fprintf(debuglog,
+		    "ovrly corr; tim: %lld, te: %08x, overlay: %08x\n",
+		    tim,te,overlay);
+	    fflush(debuglog);
+	}
     } else {
 	finalepoc = te;
     }
@@ -533,17 +540,17 @@ int main (int argc, char *argv[]) {
 		break;
 	    case 'i': /* infile name */
 		if (1!=sscanf(optarg,FNAMFORMAT,infilename)) return -emsg(2);
-		infilename[FNAMELENGTH]=0; /* security termination */
+		infilename[FNAMELENGTH-1]=0; /* security termination */
 		break;
 	    case 'O': case 'D': /* outfile2 name and type */
 		if (1!=sscanf(optarg,FNAMFORMAT,fname2)) return -emsg(3);
-		fname2[FNAMELENGTH]=0;  /* security termination */
+		fname2[FNAMELENGTH-1]=0;  /* security termination */
 		if (type2mode) return -emsg(4); /* already defined mode */
 		if (opt=='O') type2mode=1; else type2mode=2;
 		break;
 	    case 'o': case 'd': /* outfile3 name and type */
 		if (1!=sscanf(optarg,FNAMFORMAT,fname3)) return -emsg(5);
-		fname3[FNAMELENGTH]=0;  /* security termination */
+		fname3[FNAMELENGTH-1]=0;  /* security termination */
 		if (type3mode) return -emsg(6); /* already defined mode */
 		if (opt=='o') type3mode=1; else type3mode=2;
 		break;
@@ -555,7 +562,7 @@ int main (int argc, char *argv[]) {
 		break;
 	    case 'l': /* logfile name */
 		if (sscanf(optarg,FNAMFORMAT,logfname) != 1) return -emsg(7);
-		logfname[FNAMELENGTH]=0;  /* security termination */
+		logfname[FNAMELENGTH-1]=0;  /* security termination */
 		break;
 	    case 'p': /* set protocol type */
 		if (1!=sscanf(optarg,"%d",&proto_index)) return -emsg(25);
@@ -713,6 +720,9 @@ int main (int argc, char *argv[]) {
 		     + t_fine; /* get event time */
 	    if (t_new < t_old ) { /* negative time difference */
 		if ((t_new-t_old) & 0x1000000000000ll) { /* check rollover */
+		    fprintf(debuglog,
+			"chopper: point 1, old: %llx, new: %llx\n",
+			t_old,t_new);fflush(debuglog);
 		    inpointer++;
 		    continue; /* ...are ignored */
 		}
@@ -726,6 +736,9 @@ int main (int argc, char *argv[]) {
 		    if ((t_old-t_new+maxdiff)&0x1000000000000ll) { /*rollover*/
 			if (t_old) { /* make sure to allow time diff at start */
 			    inpointer++;
+			    fprintf(debuglog,
+				    "chopper: point 2, old: %llx, new: %llx\n",
+				    t_old,t_new);fflush(debuglog);
 			    continue;
 			}
 			fprintf(debuglog,
@@ -742,6 +755,9 @@ int main (int argc, char *argv[]) {
 		/* THIS TEST SHOULD BE OBSOLETE... */
 		if (((t_epoc-oldepoc) & 0x10000) && epochinit) {/*  rollover */
 		    /* something's fishy. ignore value */
+		    fprintf(debuglog,
+			"chopper: point 3, old: %llx, new: %llx\n",
+			t_old,t_new);fflush(debuglog);
 		    inpointer++;
 		    fishyness++;
 		    if (fishyness>MAXIMAL_FISHYNESS) {

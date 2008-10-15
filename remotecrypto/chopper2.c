@@ -212,6 +212,12 @@ int open_epoch(unsigned int te) {
 	overlay = ((aepoc >>15) & 3 )| /* from absolute epoc */
 	    ((te >>13) & 0xc); /* from timestamp epoc */
 	finalepoc = (aepoc & 0xfffe0000) + te + overlay_correction[overlay];
+	if (overlay_correction[overlay])  {
+	    fprintf(debuglog,
+		    "ovrly corr; tim: %lld, te: %08x, overlay: %08x\n",
+		    tim,te,overlay);
+	    fflush(debuglog);
+	}
     } else {
 	finalepoc = te;
     }
@@ -338,11 +344,11 @@ int main (int argc, char *argv[]) {
 		break;
 	    case 'i': /* read input file name */
 		if (1!=sscanf(optarg,FNAMFORMAT,infilename)) return -emsg(2);
-		infilename[FNAMELENGTH]=0; /* security termination */
+		infilename[FNAMELENGTH-1]=0; /* security termination */
 		break;
 	    case 'O': case 'D': /* outfile1 name and type */
 		if (1!=sscanf(optarg,FNAMFORMAT,fname1)) return -emsg(3);
-		fname1[FNAMELENGTH]=0;  /* security termination */
+		fname1[FNAMELENGTH-1]=0;  /* security termination */
 		if (type1mode) return -emsg(4); /* already defined mode */
 		if (opt=='O') type1mode=1; else type1mode=2;
 		break;
@@ -354,7 +360,7 @@ int main (int argc, char *argv[]) {
 		break;
 	    case 'l': /* logfile name */
 		if (sscanf(optarg,FNAMFORMAT,logfname) != 1) return -emsg(5);
-		logfname[FNAMELENGTH]=0;  /* security termination */
+		logfname[FNAMELENGTH-1]=0;  /* security termination */
 		break;
 	    case 'F': /* enable flushing */
 		flushmode =1;
