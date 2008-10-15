@@ -188,17 +188,17 @@ typedef struct protocol_details_C { /* used in splicer program */
 		    from stream 3in, and the bits received from stream4in,
 		    shifted by exected3ibits to the left. This size should be
 		    1<<(expected3bits+expected4bits). */
-    void (*filltable)(int*); /* helper function to fill this array. Has to be
+    void (*filltable)(unsigned int*); /* helper function to fill this array. Has to be
 			        called in the beginning */
 } pd_C;
 #define PROTOCOL_MAXINDEX 1
-void FILL_TABLE_PROTO0(int*t) {
+void FILL_TABLE_PROTO0(unsigned int *t) {
     int i;
     for (i=0;i<256;i++) 
 	t[i]=(i>>4)|((i&0xf)<<4); /* nibble swap */
     return;
 }
-void FILL_TABLE_PROTO1(int*t) {
+void FILL_TABLE_PROTO1(unsigned int *t) {
     t[0]=0;t[1]=1;
     return;
 }
@@ -472,7 +472,7 @@ int main (int argc, char *argv[]) {
     expected3bits=proto_table[proto_index].expected3ibits;
     expected4bits=proto_table[proto_index].expected4ibits;
     /* fill outword table */
-    o3_lookup=(int *)malloc(sizeof(int)*
+    o3_lookup=(unsigned int *)malloc(sizeof(int)*
 			    proto_table[proto_index].decsize);
     if (!o3_lookup ) return -emsg(36);
     proto_table[proto_index].filltable(o3_lookup);

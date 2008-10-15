@@ -158,7 +158,7 @@ FILE *debuglog;
 
 
 /* error handling */
-char *errormessage[] = {
+char *errormessage[76] = {
   "No error.",
   "error parsing source directory name", /* 1 */
   "error parsing command socket name",
@@ -271,7 +271,7 @@ int main(int argc, char *argv[]) {
     int portnumber=DEFAULT_PORT; /* defines communication port */
     int msginhandle=0;
     int ercinhandle=0,ercouthandle=0; /* error correction pipes */
-    int sendsktlen,remotelen;
+    unsigned int sendsktlen,remotelen;
     struct sockaddr_in sendadr,recadr,remoteadr;
     struct hostent *remoteinfo; 
     /* file handles */
