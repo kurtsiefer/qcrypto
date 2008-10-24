@@ -875,8 +875,10 @@ int process_esti_message_0(char *receivebuf) {
     } else {
 
 	/* create a thread with the loaded files, get thead handle */
-	if (create_thread(in_head->epoch, in_head->number_of_epochs,0.0,0.0))
+	if ((i=create_thread(in_head->epoch, in_head->number_of_epochs,0.0,0.0)))
+	{ fprintf(stderr,"create_thread return code: %d epoch: %d, number:%d\n",i,in_head->epoch, in_head->number_of_epochs);
 	    return 47; /* no success */
+	}
 
 	kb = get_thread(in_head->epoch);
 	if (!kb) return 48; /* should not happen */
