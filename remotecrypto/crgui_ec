@@ -44,10 +44,10 @@ set wantprotocol 0 ; # defines service, 0: none, 1: service, 2: BB84
 set protocol 0 ; # nothing switched on currently
 set rqprot 0
 set rcoincw 2000 ; # read coincidence window for 
-set periodecount 10 ; # number of epochs for finding a periode
+set periodecount 15 ; # number of epochs for finding a periode
 set costreamhistoopt "" ; # histogramming off normally
 set costreamhistonum 10 ; # number of averagings
-set akfbufferorder 17 ; # defines size of AKF algo
+set akfbufferorder 19 ; # defines size of AKF algo
 set detcorrection "" ; # detector timing correction
 set detcorrmode 0 ; # detector correction, default off
 for {set i 0 } {$i < 4} {incr i} { set detcval($i) 0 } ; # det skew
@@ -66,7 +66,7 @@ set costreampid 0
 set errcpid 0
 
 # coincitende time windows filter constants etc
-set rmtcoinctime 15 ; # coincidence time window for external coinc in 1/4 nsec
+set rmtcoinctime 8 ; # coincidence time window for external coinc in 1/4 nsec
 set trackwindow 30 ; # tracking window
 set tracktime 2000000 ; # tracking loop filter const in microsec
 
@@ -86,7 +86,7 @@ set firstepoch "x" ; # just to find errors
 # error correction parameters
 set errcsize1 5000 ; set errcsize2 5 ; # number of bits/epochs  to process
 set errcmode 0 ; # take raw bit number to bundle epochs
-set iniercmode 0; # test every time
+set iniercmode 2; # servo from response
 set ECmode 0; # 0: EC off, 1: keep rawkey, 2: remove raw keygrid .m4.4.t51 .m4.4.f06 - -sticky nw -pady 2
 set ECon 0 ; # 0: EC is off but may be loaded 1: EC is on now
 set PAdisable 0 ; # privacy amplification is on by default
@@ -973,7 +973,7 @@ proc install_errcd {mode} { # start deamon and hook it up to transferd
     if {$BERmode == 1} {set erropt "$erropt -B $targetBER" }
 
     # install deamon with appropriate option settings
-    set errcpid [eval exec $programroot/errcd  -c $dataroot/eccmdpipe -s $dataroot/ecspipe -r $dataroot/ecrpipe -d $dataroot/rawkey -f $dataroot/finalkey -l $dataroot/ecnotepipe -Q $dataroot/ecquery -q $dataroot/ecresp -V 2 $erropt 2>>$dataroot/errcd_err >>$dataroot/errcd_log & ]
+    set errcpid [eval exec $programroot/errcd  -c $dataroot/eccmdpipe -s $dataroot/ecspipe -r $dataroot/ecrpipe -d $dataroot/rawkey -f $dataroot/finalkey -l $dataroot/ecnotepipe -Q $dataroot/ecquery -q $dataroot/ecresp -V 2 $erropt -T 1 2>>$dataroot/errcd_err >>$dataroot/errcd_log & ]
     after 5000 errcdwatchdog
 }
 proc errcd_activity {} { # process an errcd notification
@@ -1380,13 +1380,13 @@ proc upgs { } { # update gnuplot control file
 	    for {set i 1 } {$i < 5} {incr i } {
 		if {$cbasel($i) == 1 } {
 		    if {$plotelems > 0} { append outstring {, '' } }
-		    append outstring "using [expr $i+16] not w l lt $i" 
+		    append outstring "using [expr $i+16] not w l lt $i lw 3" 
 		    set plotelems 1
 		}
 	    }
 	}
 	2 { # QUBER
-	    append outstring {using 0:(($1+$6+$11+$16)/($1+$6+$11+$16+$3+$8+$9+$14)) not w l lt 1 }
+	    append outstring {using 0:(($1+$6+$11+$16)/($1+$6+$11+$16+$3+$8+$9+$14)) not w l lt 1 lw 3}
 	    set plotelems 1
 	}
 	3 { # histos
@@ -1421,7 +1421,7 @@ proc upgs { } { # update gnuplot control file
 		    } else { set tit "\"det $i\"" }
 		    # colors: sum blk, d1: green, d2: red, d3: yel/bn, d4: blue
 		    set j [lindex { 7 3 1 4 2 } $i]
-		    append outstring "using [expr $i+1] title $tit w l lt $j" 
+		    append outstring "using [expr $i+1] title $tit w l lt $j lw 3" 
 		    set plotelems 1
 		}
 	    }
@@ -1684,7 +1684,7 @@ grid .m4.4.f07.rb1 .m4.4.f07.rb2 -sticky w
 frame .m4.4.f08
 label .m4.4.t71 -text "Targeted final BER:"
 label .m4.4.f08.t1 -text "(above 1e-26)"
-radiobutton .m4.4.f08.rb1 -text "default(1e-7)" -variable BERmode -value 0 -command sendBER
+radiobutton .m4.4.f08.rb1 -text "default(1e-9)" -variable BERmode -value 0 -command sendBER
 radiobutton .m4.4.f08.rb2 -text "custom:" -variable BERmode -value 1 -command sendBER
 entry .m4.4.f08.e1 -textvariable targetBER -width 8
 grid .m4.4.f08.rb1 .m4.4.f08.rb2 .m4.4.f08.e1 .m4.4.f08.t1 -sticky w
@@ -1694,7 +1694,7 @@ proc sendBER {} { # sends a BER to the other side. 0 means default
     if {$BERmode } {
 	if {$targetBER > 1.0 || $targetBER <= 1e-26 } {
 	    .m4.4.f08.e1 configure -fg red
-	    set $targetBER "1e-7"
+	    set $targetBER "1e-9"
 	} else {
 	    .m4.4.f08.e1 configure -fg black
 	}

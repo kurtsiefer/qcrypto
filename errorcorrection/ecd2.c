@@ -134,6 +134,7 @@ status 01.4.06 21:37; runs through and leaves no errors in final key.
        28.10.06     fixed sscanf to read in epochs >0x7fffffff
        14.07.07     logging leaked bits, verbosity options 4+5
        9.-18.10.07      fixed Bell value transmission for other side
+       24.10.08         fixed error estimation for BB84
 
 
        introduce rawbuf variable to clean buffer in keyblock struct (status?)
@@ -415,7 +416,7 @@ int emsg(int code) {
 #define MAX_ERR_THRESH 0.30 /* for checking entries */
 #define DEFAULT_INIERR 0.075 /* initial error rate */
 #define MIN_INI_ERR 0.01 /* for checking entries */
-#define MAX_INI_ERR 0.10 /* for checking entries */
+#define MAX_INI_ERR 0.12 /* for checking entries */
 #define USELESS_ERRORBOUND 0.15 /* for estimating the number of test bits */
 #define DESIRED_K0_ERROR 0.18 /* relative error on k */
 #define INI_EST_SIGMA 2. /* stddev on k0 for initial estimation */
@@ -1837,7 +1838,11 @@ int do_privacy_amplification(struct keyblock *kb, unsigned int seed,
     redundantloss=kb->correctederrors; 
 
     trueerror = (float) kb->correctederrors / (float) kb->workbits;
-    /* this is dodgy. Assume a basic error which cannot lead to any information
+    /* This intrisic error thing is very dodgy, it should not be used at all
+       unless you know what Eve is doing (which by definition you don't).
+       Therefore, it s functionality is mostly commented out, only the 
+       basic query remains.
+       Assume a basic error which cannot lead to any information
        loss to the eavesdropper. Relies on lack of imagination how an
        eavesdropper can influence this basic error rather than on fundamental
        laws. Since this is dirty, we might as well assume that the basic error
@@ -1847,13 +1852,16 @@ int do_privacy_amplification(struct keyblock *kb, unsigned int seed,
     if (intrinsicerr < trueerror) {
 	cheeky_error = sqrt(trueerror*trueerror-intrinsicerr*intrinsicerr);
 	
-       
+	/* Dodgy intrinsic error subtraction would happen here. */
+
 	/* We now evaluate the knowledge of an eavesdropper on the initial raw
 	   key for a given error rate, excluding the communication on error
 	   correction */
-	if (!bellmode) { /* do individual attack scenario */
-	    sneakloss =
-		(int)(phi(2*sqrt(trueerror*(1-trueerror)))/2.*kb->workbits);
+	if (!bellmode) { /* do single-photon source bound */
+	    sneakloss = (int)(binentrop(trueerror)*kb->workbits);
+	    /*sneakloss =
+	      (int)(phi(2*sqrt(trueerror*(1-trueerror)))/2.*kb->workbits); */
+
 	} else { /* we do the device-indepenent estimation */
 	    BellHelper=kb->BellValue* kb->BellValue/4.-1.;
 	    if (BellHelper<0.) { /* we have no key...*/
