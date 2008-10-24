@@ -475,7 +475,8 @@ int process_quads(void *sourcebuffer, int startquad, int endquad) {
 		dv=events[i];
 		/* check for dummies - to be implemented ??*/
 		if (!(cv | dv)) { /* both are zero...indicates an error */
-		    fprintf(stderr,"err: double zero\n");
+		    /* Commented out because of noise level
+                       fprintf(stderr,"err: double zero\n"); */
 		    continue;
 		}
 		
