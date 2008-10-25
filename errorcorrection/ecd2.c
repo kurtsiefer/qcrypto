@@ -44,7 +44,7 @@ usage:
         -d rawkeydirectory -f finalkeydirectory
 	-l notificationpipe
 	-q responsepipe -Q querypipe
-	[ -e errorthreshold ]
+	[ -e errormargin ]
 	[ -E expectederror ]
 	[ -k ]
 	[ -J basicerror ]
@@ -81,9 +81,13 @@ options/parameters:
 
  CONTROL OPTIONS:
  
-  -e errorthreshold:    A float parameter for an error rate to be assumed to
-                        give an eavesdropper complete knowledge about the key.
-			Currently set to 0.11
+  -e errormargin:       A float parameter for how many standard deviations
+                        of the detected errors should be added to the
+			information leakage estimation to eve, assuming a
+			poissonian statistics on the found errors (i.e.,
+			if 100 error bits are found, one standard deviation
+			in the error rate QBER is QBER /Sqrt(10). )
+			Default is set to 0.
   -E expectederror:     an initial error rate can be given for choosing the
                         length of the first test. Default is 0.05. This may
 			be overridden by a servoed quantity or by an explicit
@@ -146,11 +150,12 @@ modified version of errcd to take care of the followig problems:
     status: seems to work. needs some cleanup, and needs to be tested for
       longer key lenghts to confirm the BER below 10^-7 with some confidence.
       (chk 21.7.07)  
+      - inserted error margin option to allow for a few std deviations of the
+      detected error
 
 open questions / issues:
    check assignment of short indices for bit length....
    check consistency of processing status
-   errorthreshold input parameter is not honored
    get a good RNG source or recycle some bits from the sequence....currently
      it uses urandom as a seed source.
    The pseudorandom generator in this program is a Gold sequence and possibly
@@ -410,13 +415,13 @@ int emsg(int code) {
 /* default definitions */
 #define FNAMELENGTH 200  /* length of file name buffers */
 #define FNAMFORMAT "%200s"   /* for sscanf of filenames */
-#define DEFAULT_ERR_THRESHOLD 0.11 /* eavesdropper is assumed to have full
+#define DEFAULT_ERR_MARGIN 0. /* eavesdropper is assumed to have full
 				     knowledge on raw key */
-#define MIN_ERR_THRESH 0.01 /* for checking entries */
-#define MAX_ERR_THRESH 0.30 /* for checking entries */
+#define MIN_ERR_MARGIN 0. /* for checking error margin entries */
+#define MAX_ERR_MARGIN 100. /* for checking error margin entries */
 #define DEFAULT_INIERR 0.075 /* initial error rate */
-#define MIN_INI_ERR 0.01 /* for checking entries */
-#define MAX_INI_ERR 0.12 /* for checking entries */
+#define MIN_INI_ERR 0.005 /* for checking entries */
+#define MAX_INI_ERR 0.14 /* for checking entries */
 #define USELESS_ERRORBOUND 0.15 /* for estimating the number of test bits */
 #define DESIRED_K0_ERROR 0.18 /* relative error on k */
 #define INI_EST_SIGMA 2. /* stddev on k0 for initial estimation */
@@ -494,7 +499,7 @@ int insert_sendpacket(char *message, int length) {
 char fname[8][FNAMELENGTH]={"","","","","","","",""}; /* filenames */
 int handle[8]; /* handles for files accessed by raw I/O */
 FILE* fhandle[8]; /* handles for files accessed by buffered I/O */
-float errorthreshold=DEFAULT_ERR_THRESHOLD;
+float errormargin=DEFAULT_ERR_MARGIN;
 float initialerr=DEFAULT_INIERR;  /* What error to assume initially */
 int killmode=DEFAULT_KILLMODE; /* decides on removal of raw key files */
 float intrinsicerr=DEFAULT_INTRINSIC; /* error rate not under control of eve */
@@ -1821,7 +1826,7 @@ float binentrop(float q){return (-q*log(q)-(1-q)*log(1-q))/log(2.);}
 int do_privacy_amplification(struct keyblock *kb, unsigned int seed, 
 			     int lostbits) {
     int sneakloss;
-    float trueerror, cheeky_error;
+    float trueerror, cheeky_error, safe_error;
     unsigned int *finalkey; /* pointer to final key */
     unsigned int m; /* addition register */
     int numwords, mlen; /* number of words in final key / message length */
@@ -1839,16 +1844,24 @@ int do_privacy_amplification(struct keyblock *kb, unsigned int seed,
        in the leakage */
     redundantloss=kb->correctederrors; 
 
+    /* This is the error rate found in the error correction process. It should
+       be a fair representation of the errors on that block of raw key bits,
+       but a safety margin on the error of the error should be added, e.g.
+       in terms of multiples of the standard deviation assuming a poissonian
+       distribution for errors to happen (not sure why this is a careless
+       assumption in the first place either. */
     trueerror = (float) kb->correctederrors / (float) kb->workbits;
-    /* This intrisic error thing is very dodgy, it should not be used at all
+
+    /* This 'intrisic error' thing is very dodgy, it should not be used at all
        unless you know what Eve is doing (which by definition you don't).
        Therefore, it s functionality is mostly commented out, only the 
-       basic query remains.
-       Assume a basic error which cannot lead to any information
+       basic query remains. The idea is based on the hope ventilated 
+       at some point that there is a basic error (of the kind of a detector
+       dark count rate) which does lead to any information
        loss to the eavesdropper. Relies on lack of imagination how an
        eavesdropper can influence this basic error rather than on fundamental
-       laws. Since this is dirty, we might as well assume that the basic error
-       is UNCORRELATED to potential eavesdropping-resulting errors, and
+       laws. Since this is dirty, we might as well assume that such an error
+       is UNCORRELATED to errors caused by potential eavesdropping, and
        assume they add quadratically. Let's at least check that the true
        error is not smaller than the "basic" error..... */
     if (intrinsicerr < trueerror) {
@@ -1860,10 +1873,19 @@ int do_privacy_amplification(struct keyblock *kb, unsigned int seed,
 	   key for a given error rate, excluding the communication on error
 	   correction */
 	if (!bellmode) { /* do single-photon source bound */
-	    sneakloss = (int)(binentrop(trueerror)*kb->workbits);
-	    /*sneakloss =
-	      (int)(phi(2*sqrt(trueerror*(1-trueerror)))/2.*kb->workbits); */
 
+	    if (kb->correctederrors>0) {
+		safe_error = 
+		    trueerror*(1.+errormargin/sqrt(kb->correctederrors));
+	    } else {
+		safe_error = trueerror;
+	    }
+	    sneakloss = (int)(binentrop(safe_error)*kb->workbits);
+
+	    /* old version of the loss to eve:
+	       sneakloss =
+	      (int)(phi(2*sqrt(trueerror*(1-trueerror)))/2.*kb->workbits);
+	    */
 	} else { /* we do the device-indepenent estimation */
 	    BellHelper=kb->BellValue* kb->BellValue/4.-1.;
 	    if (BellHelper<0.) { /* we have no key...*/
@@ -1877,10 +1899,12 @@ int do_privacy_amplification(struct keyblock *kb, unsigned int seed,
 	sneakloss = 0; /* Wruaghhh - how dirty... */
     }
 
+    /* here we do the accounting of gained and lost bits */
     kb->finalkeybits = kb->workbits-(kb->leakagebits+sneakloss)+redundantloss;
     if (kb->finalkeybits<0) kb->finalkeybits=0; /* no hope. */
 
-    /* dirtwork for testing*/
+    /* dirtwork for testing. I need to leave this in because it is the basis
+     for may of the plots we have. */
     printf("PA disable: %d\n",disable_privacyamplification);
 
     if (disable_privacyamplification) {
@@ -2603,9 +2627,9 @@ int main (int argc, char *argv[]) {
 		fname[i][FNAMELENGTH-1]=0;   /* security termination */
 		break;
 	    case 'e': /* read in error threshold */
-		if (1!=sscanf(optarg,"%f",&errorthreshold)) return -emsg(10);
-		if ((errorthreshold<MIN_ERR_THRESH) || 
-		    (errorthreshold>MAX_ERR_THRESH)) return -emsg(11);
+		if (1!=sscanf(optarg,"%f",&errormargin)) return -emsg(10);
+		if ((errormargin<MIN_ERR_MARGIN) || 
+		    (errormargin>MAX_ERR_MARGIN)) return -emsg(11);
 		break;
 	    case 'E': /* expected error rate */
 		if (1!=sscanf(optarg,"%f",&initialerr)) return -emsg(12);
