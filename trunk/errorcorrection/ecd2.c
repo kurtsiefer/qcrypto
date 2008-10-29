@@ -563,11 +563,14 @@ int create_thread(unsigned int epoch, int num, float inierr, float BellValue) {
 	atohex(&ffnam[strlen(ffnam)],epi);
 	handle[3]=open(ffnam,FILEINMODE); /* in blocking mode */
 	if(-1==handle[3]) {
-	    fprintf(stderr,"cannot open file >%s<\n",ffnam);
+	    fprintf(stderr,"cannot open file >%s< errno: %d\n",ffnam,errno);
 	    return 67; /* error opening file */
 	}
 	/* read in file 3 header */
-	if (sizeof(h3)!=read(handle[3],&h3,sizeof(h3)))  return 68;
+	if (sizeof(h3)!=(i=read(handle[3],&h3,sizeof(h3)))) {
+	    fprintf(stderr,"error in read: return val:%d errno: %d\n",i,errno);    
+	    return 68;
+	}
 	if (h3.epoc !=epi) {
 	    fprintf(stderr,"incorrect epoch; want: %08x have: %08x\n",
 		    epi,h3.epoc);	    	    
