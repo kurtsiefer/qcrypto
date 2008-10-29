@@ -100,7 +100,7 @@ options/parameters:
                         not stop the demon. Default is 0. detailed behavior:
 			0: terminate program on everything
 			1: ignore errors on wrong packets???
-			2: ....
+			2: ignore errors inherited from other side
   -V verbosity:         Defines verbosity mode on the logging output after a
                         block has been processed. options:
 			0: just output the raw block name (epoch number in hex)
@@ -429,7 +429,7 @@ int emsg(int code) {
 #define DEFAULT_INTRINSIC 0 /* all errors are due to eve */
 #define MAX_INTRINSIC 0.05 /* just a safe margin */
 #define DEFAULT_RUNTIMEERRORMODE 0 /* all error s stop daemon */
-#define MAXRUNTIMEERROR 1 
+#define MAXRUNTIMEERROR 2 
 #define FIFOINMODE O_RDWR | O_NONBLOCK
 #define FIFOOUTMODE O_RDWR
 #define FILEINMODE O_RDONLY
@@ -884,7 +884,7 @@ int process_esti_message_0(char *receivebuf) {
 
 	/* create a thread with the loaded files, get thead handle */
 	if ((i=create_thread(in_head->epoch, in_head->number_of_epochs,0.0,0.0)))
-	{ fprintf(stderr,"create_thread return code: %d epoch: %d, number:%d\n",i,in_head->epoch, in_head->number_of_epochs);
+	{ fprintf(stderr,"create_thread return code: %d epoch: %08x, number:%d\n",i,in_head->epoch, in_head->number_of_epochs);
 	    return 47; /* no success */
 	}
 
@@ -2837,12 +2837,14 @@ int main (int argc, char *argv[]) {
 		case 0: /* received an error estimation packet */
 		    retval=process_esti_message_0(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 		    break;
 		case 2: /* received request for more bits */
 		    retval=send_more_esti_bits(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 
@@ -2850,18 +2852,21 @@ int main (int argc, char *argv[]) {
 		case 3: /* reveived error confirmation message */
 		    retval=prepare_dualpass(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 		    break;
 		case 4: /* reveived parity list message */
 		    retval=start_binarysearch(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 		    break;
 		case 5: /* reveive a binarysearch message */
 		    retval=process_binarysearch(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 
@@ -2869,6 +2874,7 @@ int main (int argc, char *argv[]) {
 		case 6: /* receive a BICONF initiating request */
 		    retval=generate_biconfreply(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 
@@ -2876,6 +2882,7 @@ int main (int argc, char *argv[]) {
 		case 7: /* receive a BICONF parity response */
 		    retval=receive_biconfreply(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 
@@ -2883,6 +2890,7 @@ int main (int argc, char *argv[]) {
 		case 8: /* receive a privacy amplification start msg */
 		    retval=receive_privamp_msg(receivebuf);
 		    if (retval) { /* an error occured */
+			if (runtimeerrormode>1) break;
 			return -emsg(retval);
 		    }
 		    break;
