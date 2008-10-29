@@ -117,7 +117,7 @@
 #define DEFAULT_STARTEPOCH 0
 #define DEFAULT_EPOCHNUMBER 1 /* How many epochs to consider */
 #define DEFAULT_RESOLUTION 2 /* resolution in nanoseconds */
-#define RAW1_SIZE 3200000 /* should last for 700 kcps */ 
+#define RAW1_SIZE 6400000 /* should last for 1400 kcps */ 
 #define RAW2_SIZE RAW1_SIZE  /* for this: buffer1=buffer2 */
 /* definitions for folding */
 #define DEFAULT_BBW 17 /* default buffer_bitwidth */

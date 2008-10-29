@@ -19,7 +19,7 @@ LICENSE
 
 SUBDIRECTORIES
 
-ec2
+errorcorrection
 remotecrypto
 timestamp3
 usbtimetagdriver

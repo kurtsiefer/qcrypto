@@ -223,8 +223,8 @@
 #define DEFAULT_SLEEP_LOOP 50000 /*  usec to sleep between read attempts */
 
 /* binary buffers */
-#define RAW1_SIZE 3200000 /* should last for 700 kcps */
-#define RAW2_SIZE 1000000 /* should last for 700 kcps */ 
+#define RAW1_SIZE 6400000 /* should last for 1400 kcps */
+#define RAW2_SIZE 2000000 /* should last for 1400 kcps */ 
 #define RAW3_SIZE 150000  /* more than enough? */
 #define RAW4_SIZE  40000   /* plenty */
 
