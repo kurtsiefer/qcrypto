@@ -94,6 +94,7 @@ set targetBER 1e-9 ; # some entry
 set BERmode 0 ; # 10 rounds by default
 
 set ercinierr0 0.05; # initial error in percent
+set ercinierrlimit 0.12; # upper limit for servoed error sent to errcd 
 set ercfilter 5; # number of epocs to filter over
 set totalfinalbits 0 ; # no bits at beginning
 set undigestedepochs 0 ; # to decide on error correction feeder
@@ -981,7 +982,8 @@ proc errcd_activity {} { # process an errcd notification
     global debugval
     global errcepoch2 ercrawbits2 ercfibits2 ercfierr2 
     global ercinierr0 iniercmode ercfilter ; # for servoing initial error
-    global totalfinalbits
+    global ercinierrlimit ; # keeping servo not locked up
+    global totalfinalbits 
     if {![eof $errchandle]} {
 	gets $errchandle a ; # return value is now in variable a
 	set b [split $a " \t"]
@@ -994,6 +996,9 @@ proc errcd_activity {} { # process an errcd notification
 	    if {$ercfilter <= 0 } { set ercfilter 1}; # dirty...
 	    set u [ gooderr0 ]
 	    set u [expr $u +($ercfierr2-$u)/$ercfilter]
+	    if {$u > $ercinierrlimit} { # limit value
+		set u $ercinierrlimit
+	    }
 	    set ercinierr0 [string range $u 0 6]
 	}
 	# update final bit count
@@ -1642,6 +1647,8 @@ radiobutton .m4.4.f05.rb13 -text "servoed over" -variable iniercmode -value 2 \
     -command errcadjust
 entry .m4.4.f05.e11 -textvariable ercfilter -width 3 -relief sunken
 label .m4.4.f05.t12 -text blocks
+label .m4.4.f05.t14 -text "     servo error limit:"
+entry .m4.4.f05.e14 -textvariable ercinierrlimit -width 4 -relief sunken
 proc errcadjust {} { # adjusting enabled / disabled state of error entries
     global iniercmode
     set s1 [lindex {disabled normal disabled} $iniercmode ]
@@ -1664,6 +1671,7 @@ proc gooderr0 {} { # returns the ercinierr0 value unless it is out of bound
 errcadjust
 grid .m4.4.f04.rb11 .m4.4.f04.rb12 .m4.4.f04.e12 .m4.4.f04.t13 -sticky nw
 grid .m4.4.f05.rb13 .m4.4.f05.e11 .m4.4.f05.t12 -sticky nw
+grid .m4.4.f05.t14 .m4.4.f05.e14 -sticky nw
 
 # rawkey treatment and on/of status
 label .m4.4.t51 -text "operation mode:"
