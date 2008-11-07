@@ -751,8 +751,10 @@ int get_stream_1(void *buffer, int handle, int maxsize,
 		 struct header_1 *head) {
     int retval;
     int eidx;
+    int loops, bytelen; /* read-in game variables */
     unsigned int *ib = buffer;
     struct header_1 *h; /* for local storage */
+
     retval=read(handle,buffer,maxsize);
     if (!retval) return 39; /* nothing available */
     if (!(retval+1)) return 40; /* other error */
@@ -763,11 +765,29 @@ int get_stream_1(void *buffer, int handle, int maxsize,
     if (h->length) {
 	eidx=(h->length*sizeof(struct rawevent)+sizeof(struct header_1))
 	    /sizeof(unsigned int);
-	if (eidx!=(retval/(int)sizeof(unsigned int)-2))
-	    return 43; /* length mismatch */
+	if (eidx!=(retval/(int)sizeof(unsigned int)-2)) {
+	    /* we did not get everything */
+	    bytelen = retval; /* save number of already loaded bytes */
+	    for (loops=DEFAULT_READLOOPS;loops>0;loops--) {
+		retval=read(handle,&((char *)buffer)[bytelen],maxsize-bytelen);
+		if (!(retval+1)) return 40; /* other error */
+		bytelen +=retval;
+		if (bytelen >= (h->length+1)*sizeof(struct rawevent) +
+		    sizeof(struct header_1)) break; /* got all or more? */ 
+		usleep(DEFAULT_SLEEP_LOOP); /* sleep a while */
+	    }
+	    if (!loops) {
+		fprintf(stderr,
+			"stream 1 ep %08x bytes shortage; got %d len:%d\n",
+			h->epoc, bytelen, h->length);
+		return 41;
+	    } 
+	}
 	if (ib[eidx] | ib[eidx+1]) return 43; /* last word nonzero */
 
     } else {
+	fprintf(stderr,"stream 1 ep %08x zero announced len, got %d bytes\n",
+		h->epoc, retval);
 	if (retval-sizeof(struct header_1) % sizeof(struct rawevent))
 	    return 43; /* size mismatch */
 	eidx=retval/sizeof(unsigned int);
@@ -808,7 +828,7 @@ int get_stream_2(void *buffer, int handle, int maxsize,
 	}
 	if (!loops)  { /* failed to read all bytes */
 	    fprintf(stderr, "cannot get all bytes; got %d ",bytelen);
-	    return 46; /* incomplete read */
+	    return 46; /*S incomplete read */
 	}
     } else { /* need to hope that I get correct length in first read */
 	retval=read(handle,buffer,maxsize);
