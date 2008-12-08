@@ -1376,7 +1376,7 @@ proc upgs { } { # update gnuplot control file
     global diagdatafile2 costreamhistoopt costreamhistonum
     global diagdatafile3 sisel plotelems
     exec echo "set terminal tkcanvas ; set output \"$gnucanvas\"" >$gnucontrol
-    exec echo "set yrange \[-.1:*\]" >> $gnucontrol
+    exec echo "set yrange \[-.001:*\]" >> $gnucontrol
     set plotelems 0 ; # counts number of elements to display
     set outstring "plot \'$diagdatafile\' "
     set costreamhistoopt "" ; # for cases 1-3
