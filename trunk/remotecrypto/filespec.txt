@@ -232,3 +232,27 @@ accommodate for the first two possible indices,  the index is just increased by
 2 before encoding, and has to be reduced by 2 upon decoding. The datacontent
 bit pattern is emitted together with every event or entry in the data section,
 including the termination word (even there it has no information content).
+
+5. Final key storage file
+This file type is used essentially by the error correction/provacy
+amplification scheme; since error correction/PA is typically carried out on
+more than one epoch, the header contains an information on how many epochs
+were concatenated to obtain this particular key sequence. Futhermore, the file
+contains only one bit per entry, so this information needs not to be
+encoded. This file format is therefore a simplification of he type 3 format.
+
+header format:
+        struct header_7 {int tag;
+    	       		 unsigned int epoc;	
+    			 unsigned int numberofepochs;
+    			 int numberofbits; }
+
+The <tag> entry is  either 0x7 for local epoc or 0x107 for an extended epoc
+definition. The <epoch> entry represents the first data epoch used for
+generating this key file; <numberofepochs> contains the nmber of processed
+epochs for this file, and represents what was passed as a parameter to the
+error correction deamon. Finally, <numberofbits> contains the number of bits
+following the header. Bits get filled in 32 bit wide words, starting from the
+most significant bit in each word. Thus, the length of the data section of
+this file is given by floor((<numberofbits>+31)/32).
+
