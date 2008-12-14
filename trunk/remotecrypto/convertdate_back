@@ -1,0 +1,15 @@
+#!/bin/sh
+# program to convert a date string into an epoch
+# usage: convertdate_back xxxxx
+
+# conversion in seconds since 1970
+u=$(date -d $1 +%s)
+
+# conversion into epochs 
+v=$(($u*1000000000/536870912))
+
+# printing in hex
+printf %08x $v
+# adding a newline
+echo ""
+
