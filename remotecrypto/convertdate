@@ -1,0 +1,15 @@
+#!/bin/sh
+# program to convert an epoch number into a date
+# usage: convertdate xxxxx
+
+# conversion in decimal number
+b=$((0x$1))
+
+# conversion in seconds since 1970
+c=$(($b*536870912/1000000000))
+
+# echo ">>$b;$1;$c<<"
+date -d "1970-01-01UTC $c seconds"
+
+
+

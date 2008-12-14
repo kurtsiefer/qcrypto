@@ -180,3 +180,8 @@ all timing key and communication elements.
 
 gui_spec: An incomplete writeup of communication snippets between the GUI
  running on both sides
+
+convertdate: A short shell script to convert an epoch index into a
+ human-readable date
+
+convertdate_back: A shell script to convert soe time/date string into an epoch
