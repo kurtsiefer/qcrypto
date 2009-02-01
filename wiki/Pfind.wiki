@@ -21,18 +21,27 @@ Since the signal/noise ratio in the peak finding problem for a given pair and ba
 Further segmentation in smaller and smaller problems to perhaps reflect the spirit of the Cooley-Turkey FFT idea  did not work out in practice, since the background noise renders the peak finding problem unreliable.
  
 = Implementation of the algorithm =
-sparse population of event line, wrap-around for longer sequences (to be written)
+The code in _pfind.c_ is written to concatenate a few packets of timing event data generated on the two sides into the respective file formats, and extract the time difference with a resolution of by default 2 nsec. 
+
+In a first step, the event timing data is cast into two discrete arrays for each side, one for obtaiing coarse timing information with a resolution of 2048 ns, and one for a fine timing resolution of 2 ns. This conversion visits each timing event only once, and increments the corresponding array element. Timing information is converted into an array index by trunking/shifting of the full-reslution time information. Before the arrays are filled, they get initialized with a negative number removing the DC bias in the fianl correlation array. This is intended to avoid any numerical saturation in the FFT process.
+
+In a next step, the Fourier transformation is carried out using the fftw3 library. The two transformations are then conjucated/multiplied to obtain the FFT of the cross correlation function, and then transformed back to the with the according fftw3 http://www.fftw.org/  call.
+
+The back-transformed array is then searched for its maximum. In the same loop, the mean (which should be zero due to the pre-loading of the original arrays) and the variance are determined to estimate with which statistical significance the maximum in the cross correlation function exceeds the offset due to the background level. This number serves as a good criterion for identifying the coincidences.
+
+Finally, the time difference with its full resolution is obtained by merging the relevant bits of maximum positions of the ccf both for the fine and coarse discretization time. The time difference, together with the statistical significance of the peaks found for coarse and fine resolution are then passed on to feed the coincidence tracking code _cosream.c_.
+
 
 = Confidence estimation of a given time difference =
-How estimated, how likely is a found peak for a given Peak/noise ratio (to eb written)
+The confidence of finding a peak is gauged by the excess _S_ of a peak above the mean of the ccf, expressed in multiples of standard deviations of the ccf. For the large number of elements in the FFT, the latter is usually determined by fluctuations in the base line of the ccf. With the assumption of a Gaussian distribution of noise on this base line, a statatistical significance _S_ above 6 ensures a very low probability of misidentifying a fluctuation as the correct ccf peak position.
 
-= Code aspects =
+If the reference clocks are slightly out of sync, and/or the acwuisition time is very long to obtain a stronger signal, the statistical significance for the fine resolution may be  worse than the one for the coarse resolution. On the contrary, if the acquired data is badly matched to the size of the discrete array, usually the statistical significance of the coarse resolution is smaller than for the fine resolution.
 
-usage of fft3 (to be written)
+A high (_S_>6) statistical significance may with a consecutive lack of coincidences may indicate that the time difference is larger than what the algorithm an capture. This is usually caused by an insufficient synchronism between the host clocks.
 
 = Future work =
-Currently, this code needs a frequency matching of the two local reference oscillators within 10^-9^. This is a frequency pairing which can currently only be accomplished using Rb reference oscillators, or broadcasted copies of atomic clock references such as GPS receiving systems.
+Currently, this code needs a frequency matching of the two local reference oscillators within 10^-9^. This frequency pairing can only be accomplished using Rb reference oscillators or broadcasted copies of atomic clock references such as GPS receiving systems.
 
-While Rb oscillators are reasonably easy available, and GPS receivers by now are almost a consumer item, it still requires a hardware complexity which is not necessitated by the problem: There should be enough information content in the two timing data sets to extract not only a time difference, but also a frequency difference between two local clocks.
+While Rb oscillators are reasonably easy available, and GPS receivers by now are almost a consumer item, it still requires a hardware complexity which is not necessitated by the problem: There is enough information content in the two timing data sets to extract not only a time difference, but also a frequency difference between two local clocks.
 
-Caleb Basil Ho is currently working on such an algorithm, which should eventually allow to use consumer-grade crystal oscillators with a long term stability and accuracy of 10-100ppm; the necessary short term stability for this information being extractable should be good enough.
+Caleb Ho has developed such an algorithm, which allows to use consumer-grade crystal oscillators with a long term stability and accuracy of 10-100ppm as reference clocks. A description of this algorithm, together with a more thorough analysis of the present scheme, can be found at http://arxiv.org/abs/0901.3203
