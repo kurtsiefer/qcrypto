@@ -25,7 +25,7 @@ The code in _pfind.c_ is written to concatenate a few packets of timing event da
 
 In a first step, the event timing data is cast into two discrete arrays for each side, one for obtaiing coarse timing information with a resolution of 2048 ns, and one for a fine timing resolution of 2 ns. This conversion visits each timing event only once, and increments the corresponding array element. Timing information is converted into an array index by trunking/shifting of the full-reslution time information. Before the arrays are filled, they get initialized with a negative number removing the DC bias in the fianl correlation array. This is intended to avoid any numerical saturation in the FFT process.
 
-In a next step, the Fourier transformation is carried out using the fftw3 library. The two transformations are then conjucated/multiplied to obtain the FFT of the cross correlation function, and then transformed back to the with the according fftw3 http://www.fftw.org/  call.
+In a next step, the Fourier transformation is carried out using the fftw3 library. The two transformations are then conjucated/multiplied to obtain the FFT of the cross correlation function, and then transformed back to the with the according fftw3 ( http://www.fftw.org/   ) call.
 
 The back-transformed array is then searched for its maximum. In the same loop, the mean (which should be zero due to the pre-loading of the original arrays) and the variance are determined to estimate with which statistical significance the maximum in the cross correlation function exceeds the offset due to the background level. This number serves as a good criterion for identifying the coincidences.
 
