@@ -1,0 +1,31 @@
+#!/bin/sh
+
+# simple script to read in eve's events. timestamp data is recorded as 
+# t1 files, and the following log files are generated:
+
+# Script can be stopped just by killing
+
+# program root
+programroot=$PWD
+dataroot=/tmp/eve/
+dataroot2=$dataroot/eve_t1
+
+# eventually create directories
+if [ -d $dataroot ] ; then ; else mkdir $dataroot ; fi
+if [ -d $dataroot2 ] ; then ; else mkdir $dataroot2 ; fi
+
+
+# add a detector skew here if you like
+detcorrection="-d 0,0,0,0"
+
+# option to complain if there is a too large difference. Was used for corrupted
+# timestamp data, not a prob anymore with usb?
+maxeventdiff=0
+
+$programroot/readevents -a 1 -r -A -e -S 20 \
+    $detcorrection \
+    2>>$dataroot/evereaderror \
+    |  $programroot/chopper2 \
+    -l $dataroot/evelogfile -V 3 \
+    -D $dataroot2 -U  -F\
+    -m $maxeventdiff

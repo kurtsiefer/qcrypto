@@ -1,9 +1,8 @@
 File specification for exchange of sifting / key information between two
-crypto clients.
+crypto clients; extended for deviceindependent protocol
 
-status of document: 27.11.05 (clarified detail for t4 termination)
+status of document: 16.5.09
 
-started: 22.8.05
 
 Rationale
 The key generation procedure with either BB84 or entanglement based protocols
@@ -136,7 +135,9 @@ compressor. Currently supported are:
     msb is 0, the lsb has BB84 meaning, if msb is 1, a multi-
     or no-coincidence event was recorded (lsb=1), or a pair
     coincidence was detected (lsb=0).
-		 
+ 4: extended devindep, 3 bits (1 out of 5)
+ 5: extended devindep, no base info is sent.
+	 
 
 
 The data section contains a stream of bit-packed entries with a length of
@@ -255,4 +256,3 @@ error correction deamon. Finally, <numberofbits> contains the number of bits
 following the header. Bits get filled in 32 bit wide words, starting from the
 most significant bit in each word. Thus, the length of the data section of
 this file is given by floor((<numberofbits>+31)/32).
-

@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# script to remove all temporary files and cleanup of directories
+
+#directory for programs
+PROG=$PWD
+
+# directory for temp files
+TD=/tmp/cryptostuff
+
+
+# remove files in progdir
+rm $PROG/costream_*
+
+# remove files in tmpdir
+rm -f $TD/chop*
+rm -f $TD/cmdins
+rm -f $TD/costream*
+rm -f $TD/diagnosis_log
+rm -f $TD/debuglog
+rm -f $TD/histos/*
+rm -rf $TD/pf*
+rm -f $TD/rawpacketindex
+rm -f $TD/readeventserror
+rm -f $TD/tilog
+
+rm -f $TD/sendfiles/*
+rm -f $TD/transferlog2
+rm -f $TD/choplog2
+rm -f $TD/cmdins
+rm -f $TD/msgin2
+rm -f $TD/chopdebug
+
+# potentially large directories
+cd $TD/t1 ; a=$(ls) ; for u in $a ; do rm -f $i ; done 
+cd $TD/t3 ; a=$(ls) ; for u in $a ; do rm -f $i ; done 
+cd $TD/t5 ; a=$(ls) ; for u in $a ; do rm -f $i ; done 
+cd $TD/receivefiles ; a=$(ls) ; for u in $a ; do rm -f $i ; done 
+cd $TD/rawkey ; a=$(ls) ; for u in $a ; do rm -f $i ; done 
+
