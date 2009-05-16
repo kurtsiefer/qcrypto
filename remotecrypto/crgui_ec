@@ -52,6 +52,7 @@ set detcorrection "" ; # detector timing correction
 set detcorrmode 0 ; # detector correction, default off
 for {set i 0 } {$i < 4} {incr i} { set detcval($i) 0 } ; # det skew
 set autorestart 1 ; # to restart thing after costream died
+set killmode 0 ; # remove unused files. 1: keep t2/t4, 2:keep all
 
 set maxeventdiff 20000 ; # corresponds to 50 cps
 
@@ -632,6 +633,7 @@ proc periodefind2 {} {
     global locstat debugval receivenotehandle sigshort siglong
     global rmtcoinctime trackwindow tracktime akfbufferorder
     global costreamhistoopt costreamhistonum firstreceivedepoch
+    global killmode
     set debugval "h1"
     if {$negotiatemode != 2} return ; # wrong mode
     if {$costreampid !=0 } return ; #is already running
@@ -699,13 +701,27 @@ proc periodefind2 {} {
     set costreamhandle [open $dataroot/genlog r+]
     fileevent $costreamhandle readable costreamlogactivity
     
-
     fileevent $receivenotehandle readable receivelogactivity2
 
     set logstat "raw key gen"
-    set costreampid [exec $programroot/costream -d $dataroot/receivefiles -D $dataroot/t1 -f $dataroot/rawkey -F $dataroot/sendfiles -e $beginepoch -k -K -t $timedifference -p $proto -T 2 -m $dataroot/rawpacketindex -M $dataroot/cmdpipe -n $dataroot/genlog -V 5 -G 2 -w $rmtcoinctime -u $trackwindow -Q [expr int(-$tracktime)] -R 5 $costreamhistoopt -h $costreamhistonum 2>>$dataroot/costreamerror & ]
-   after 1000 costreamwatchdog
-#set debugval "h5"
+
+    # prepare kill options to match the logging requirement
+    set killoption [lindex {"-k -K" "-K" ""} $killmode] 
+
+    set costreampid [exec $programroot/costream \
+			 -d $dataroot/receivefiles -D $dataroot/t1 \
+			 -f $dataroot/rawkey -F $dataroot/sendfiles \
+			 -e $beginepoch \
+			 $killoption \
+			 -t $timedifference -p $proto \
+			 -T 2 -m $dataroot/rawpacketindex \
+			 -M $dataroot/cmdpipe \
+			 -n $dataroot/genlog -V 5 \
+			 -G 2 -w $rmtcoinctime \
+			 -u $trackwindow -Q [expr int(-$tracktime)] -R 5 \
+			 $costreamhistoopt -h $costreamhistonum \
+			 2>>$dataroot/costreamerror & ]
+    after 1000 costreamwatchdog
 }
 # watchdog for dead costream
 proc costreamwatchdog {} {
@@ -818,6 +834,7 @@ proc startdigestpart1 {} {
     global programroot dataroot negotiatemode protocol
     global splicerloghandle splicerpid locstat  receivenotehandle
     global recepoch splicecomhandle
+    global killmode
     if {$negotiatemode != 1} return
     # start splicer
     set proto [lindex {-1 0 1} $protocol]
@@ -831,7 +848,16 @@ proc startdigestpart1 {} {
     set debugval "point 7" ; # update
     set splicerloghandle [open $dataroot/genlog r+]
     fileevent $splicerloghandle readable splicerlogactivity
-    set splicerpid [exec $programroot/splicer -d $dataroot/t3 -D $dataroot/receivefiles -f $dataroot/rawkey -E $dataroot/splicepipe -k -K -p $proto -m $dataroot/genlog & ]
+
+    # set file keeping option
+    set killoption [lindex {"-k -K" "-k" ""} $killmode]
+    set splicerpid [exec $programroot/splicer \
+			-d $dataroot/t3 -D $dataroot/receivefiles \
+			-f $dataroot/rawkey \
+			-E $dataroot/splicepipe \
+			$killoption \
+			-p $proto \
+			-m $dataroot/genlog & ]
     set logstat "raw key gen"
 }
 proc stopdigestpart1 {} {
@@ -1785,11 +1811,11 @@ label .m4.5.t -text "Maintenance commands & internal tweeks"
 button .m4.5.b2 -text "disconnect" -command endcommunication
 button .m4.5.b4 -text "close msg chan" -command closemessage
 button .m4.5.b3 -text "open msg chan" -command openmessage
-button .m4.5.b7 -text "identity request" -command initiateidentification
+# button .m4.5.b7 -text "identity request" -command initiateidentification
 
 
-button .m4.5.b7a -text "start reader" -command startreadevents
-button .m4.5.b9  -text "negotiate protocol" -command initiateprotonego
+# button .m4.5.b7a -text "start reader" -command startreadevents
+# button .m4.5.b9  -text "negotiate protocol" -command initiateprotonego
 
 entry .m4.5.e6 -textvariable msgtosend -width 20
 button .m4.5.b6 -text "send msg" -command { sendmsg $msgtosend }
@@ -1798,38 +1824,50 @@ button .m4.5.b6 -text "send msg" -command { sendmsg $msgtosend }
 
 
 
-button .m4.5.b10c -text "startinputpart2" -command startinputpart2
-button .m4.5.b10d -text "enable 2" -command enableinputpart2
-button .m4.5.b10e -text "disble 2" -command disableinputpart2
+# button .m4.5.b10c -text "startinputpart2" -command startinputpart2
+# button .m4.5.b10d -text "enable 2" -command enableinputpart2
+# button .m4.5.b10e -text "disble 2" -command disableinputpart2
 
-button .m4.5.b10f -text "enable 1" -command enableinputpart1
-button .m4.5.b10g -text "disble 1" -command disableinputpart1
-button .m4.5.b10h -text "shutdowinp1" -command shutdowninputpart1
-button .m4.5.b10i -text "shutdinp2" -command shutdowninputpart2
-button .m4.5.b10j -text "stopcapture2" -command stopcapture2
-button .m4.5.b10k -text "stopdigest1" -command stopdigestpart1
+# button .m4.5.b10f -text "enable 1" -command enableinputpart1
+# button .m4.5.b10g -text "disble 1" -command disableinputpart1
+# button .m4.5.b10h -text "shutdowinp1" -command shutdowninputpart1
+# button .m4.5.b10i -text "shutdinp2" -command shutdowninputpart2
+# button .m4.5.b10j -text "stopcapture2" -command stopcapture2
+# button .m4.5.b10k -text "stopdigest1" -command stopdigestpart1
 button .m4.5.b11a -text "clear t1 t3 rawkey dir"  -command removestaletempfiles
 button .m4.5.b11b -text "clear stale log files"  -command removestalelogfiles
 button .m4.5.b11c -text "clear histo files"  -command removehistofiles
-button .m4.5.b12a -text "start single counting" -command startsinglecount
-button .m4.5.b12b -text "stop single counting" -command stopsinglecount
+# button .m4.5.b12a -text "start single counting" -command startsinglecount
+# button .m4.5.b12b -text "stop single counting" -command stopsinglecount
 button .m4.5.b11a2 -text "save timedist" -command {
     set gg [exec date +%s]
     exec echo $timedifference $gg >> timerec
 }
 
 
+# entry to play with the file kill option
+label .m4.5.t13 -text "timing file policy"
+radiobutton .m4.5.rb13a -text "continuously discard unused files" \
+    -variable killmode -value 0
+radiobutton .m4.5.rb13b -text "keep transmitted files (t2&t4)" \
+    -variable killmode -value 1
+radiobutton .m4.5.rb13c -text "keep all (t1, t2, t4) files" \
+    -variable killmode -value 2
+
 
 grid .m4.5.t -pady 5 -columnspan 2 -sticky nseww
 grid .m4.5.b2  .m4.5.b3 .m4.5.b4  -sticky w
 grid .m4.5.e6 .m4.5.b6 -sticky w
-grid .m4.5.b7 .m4.5.b9 -sticky w
-grid .m4.5.b10c .m4.5.b10d .m4.5.b10e .m4.5.b7a -sticky w
-grid .m4.5.b10f .m4.5.b10g .m4.5.b10h -sticky w
-grid .m4.5.b10i .m4.5.b10j .m4.5.b10k -sticky w
+# grid .m4.5.b7 .m4.5.b9 -sticky w
+# grid .m4.5.b10c .m4.5.b10d .m4.5.b10e .m4.5.b7a -sticky w
+# grid .m4.5.b10f .m4.5.b10g .m4.5.b10h -sticky w
+# grid .m4.5.b10i .m4.5.b10j .m4.5.b10k -sticky w
 grid .m4.5.b11a .m4.5.b11b .m4.5.b11c -sticky w
-grid .m4.5.b12a .m4.5.b12b -sticky w
+# grid .m4.5.b12a .m4.5.b12b -sticky w
 grid .m4.5.b11a2 -sticky w
+grid .m4.5.t13 .m4.5.rb13a -sticky w
+grid x .m4.5.rb13b -sticky w
+grid x .m4.5.rb13c  -sticky w
 
 # grid rowconfigure .m4.5 0 -minsize 200
 
