@@ -1,9 +1,9 @@
 /* getrate.c :  Part of the quantum key distribution software to detremine the
                 count rate of individual detectors from the output of the
 		timestamp data emitted by readevenrs.c. Description
-                see below. Version as of 20070101
+                see below. Version as of 20090516
 
- Copyright (C) 2005-2006 Christian Kurtsiefer, National University
+ Copyright (C) 2005-2009 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -43,14 +43,23 @@
                  corresponding to individual detector events are given, plus a
 		 fifth one for the overall events (can be lower than sum of 4
 		 due to coincidences). Switched off by default.
+   -6 :          same as -s option, but with 6 detectors, where the two
+                 additional ones are identified by 1-2 and 2-3 coincidences
+   -8 :          same as -6 option, but with two more detectors corresponding
+                 to coincidences 3-4 and 4-1
 
   History: 
   started to work sometime.
   added -s and -n option and modified code to work for this 120206chk
   tried to make -n option fast to cope w high count rates 220206chk
   tested up to 350k events / epoch
+  modified to cater for more than 4 detectors 160507chk
+  changed ambicuous counts for multiple events 280507chk
+  modified core structure to avoid hangup in USB continuous mode...
+  still needs to be tested for reliability 080707chk
   backported an error in free from getrate2.c 250708chk
-
+  added the zero counts tolerance - 16.5.09 chk
+  This is a merge between getrate2 and getrate.c - seems to work16.5.09chk
 
 */
 
@@ -81,6 +90,8 @@ char *errormessage[] = {
     "error parsing round number",
     "number of rounds negative.",
     "cannot malloc buffer",   /* 10 */
+    "error in select command",
+    "timeout in select call",
 };
 int emsg(int code) {
     fprintf(stderr,"%s\n",errormessage[code]);
@@ -91,7 +102,8 @@ typedef struct rawevent {unsigned int cv; /* most significan word */
     unsigned int dv; /* least sig word */} re;
 
 /* counting mask for different output options */
-unsigned int cmask[5]={0xf,1,2,4,8}; /* entry 0 for all dets, rest specific */
+#define DETMASK 0xf /* mask for detectorpattern */
+unsigned int cmask[9]={0xf,1,2,4,8,3,6,0xc,9}; /* entry 0 for all dets, rest specific */
 
 int main (int argc, char *argv[]) {
     int opt; /* command parsing */
@@ -108,19 +120,22 @@ int main (int argc, char *argv[]) {
     FILE *outhandle;
     int emergencybreak;
     int numofrounds = DEFAULT_EVENTS; /* number of epochs to report */
-    int splitoption = DEFAULT_SPLITOPTION; /* 0: only sum, !=0: details */
-    int j,cnt[5]; /* index through counts and counter itself */
-    int numret;  /* number of returned events */
+    int splitoption = DEFAULT_SPLITOPTION; /* 0: only sum, 4: 4 detectors,
+					      6 or 8: 6 or 8 detectors */
+    int j,cnt[9]; /* index through counts and counter itself */
+    int numret=0;  /* number of returned events */
     unsigned int dv=0; /* temporary buffer for dv */
     int i; /* event counter */
     char *ibfraw; /* raw input buffer */
     unsigned int repairidx; /* contains bytes to skip not next read */
     unsigned int retval;
     int firstshot;
+    int zerocountoption = 1; /* if set, a zero is printed if there are no cnts,
+				if zero, an error takes place */
     
     /* parse arguments */
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "i:o:t:n:s")) != EOF) {
+    while ((opt=getopt(argc, argv, "i:o:t:n:s68")) != EOF) {
 	switch (opt) {
 	    case 'i': /* set input file name */
 		if(1!=sscanf(optarg,FNAMFORMAT,infilename)) return -emsg(1);
@@ -137,8 +152,14 @@ int main (int argc, char *argv[]) {
 		if (1!=sscanf(optarg,"%d",&numofrounds)) return -emsg(8);
 		if (numofrounds<0) return -emsg(9);
 		break;
-	    case 's': /* multi output option */
-		splitoption=1;
+	    case 's': /* multi output option for 4 detectors */
+		splitoption=4;
+		break;
+	    case '6': /* six detectors */
+		splitoption=6;
+		break;
+	    case '8': /* eight detectors */
+		splitoption=8;
 		break;
 	}
     }
@@ -164,72 +185,136 @@ int main (int argc, char *argv[]) {
 
     emergencybreak=0;
     repairidx=0;
-    do { /* repeat through all rounds.... */
-	/* install signal handler for timeout and set timeout */
+    firstshot=0; /* to get very first timing information */
+    for (j=0;j<9;j++) cnt[j]=0; /* zero counts */
+    do { /* main loop for reading in data */
+
+	/* prepare to read in raw timestamp data */
 	timeout1=(timespan+DEFAULT_OVERTIME)/8000; /* in microseconds */
 	tv.tv_sec = timeout1/1000000;
 	tv.tv_usec = (timeout1-1000000*tv.tv_sec);
-	firstshot=0; 
-	/* initial reading */
-	for (j=0;j<5;j++) cnt[j]=0; /* zero counts */
 	inh=fileno(inhandle);
 	FD_ZERO(&fd);FD_SET(inh,&fd);
-	select(fileno(inhandle)+1,&fd,NULL,NULL,&tv);
-	if (FD_ISSET(inh,&fd)) {
-	    do { /* read loop */
-		retval=read(inh,ibfraw,sizeof(struct rawevent) * 
-			    BUF_IN_INENVENTS); /* read raw events */
-		if (retval<(sizeof(struct rawevent)+repairidx))
-		    return -emsg(6);
-		/* cast to event raster */
-		inbuf = (struct rawevent *)(&ibfraw[repairidx]);
-		numret = (retval-repairidx)/sizeof(struct rawevent); 
-		/* repair possible buffer read mismatch */
-		repairidx = (repairidx + retval) % sizeof(struct rawevent); 
-		/* take care of first shot */
-		if (!firstshot) {
-		    firstshot=1;
-		    re=inbuf[0];inbuf=&inbuf[1];numret--;
-		    t0=((unsigned long long)re.cv<<17) +
-			((unsigned long long )re.dv >>15)
-			+timespan;
-		    t1=t0-1;
+	retval=select(fileno(inhandle)+1,&fd,NULL,NULL,&tv);
+	/* trap any nonsenese coming out of the select call */
+	if (retval<1) { /* something silly has happened */
+	    if (retval<0) { /* there was an error */
+		emergencybreak=-1; /* indicate error condition from select */
+		break;
+	    }
+	    /* now we have to deal with a timeout; how so? */
+	    if (!zerocountoption) {
+		emergencybreak=2; /* for the moment, just mark the condition */
+		break;
+	    } else { /* we need to print zero and resume the loop */
+		fprintf(outhandle,"%d",cnt[0]); /* total counts */
+		/* display whatever detcount was selected */
+		for (j=1;j<=splitoption;j++) fprintf(outhandle," %d",cnt[j]);
+		fprintf(outhandle,"\n"); /* terminate with newline */
+		fflush(outhandle);
+		
+		/* clear counters and update expiry timer t0 */
+		for (j=0;j<9;j++) cnt[j]=0;
+		t0 += timespan+DEFAULT_OVERTIME;
+		
+		/* check for break conditions */
+		numofrounds--; /* result 0: terminate, <0: foreverloop */
+		if (numofrounds<0) numofrounds = -1; /* avoid overflow */
+		if (numofrounds==0) { /* we need to terminate */
+		    emergencybreak = 1;
+		    break;
 		}
-                /* do parsing */
-		for (i=0;i<numret;i++) {
-		    /* increment according to mask */
-		    dv=inbuf[i].dv;
-		    for (j=0;j<5;j++) if (cmask[j] & dv) cnt[j]++;
-		    t1=((unsigned long long)inbuf[i].cv<<17) +
-			((unsigned long long )dv >>15);
-		    if (t1>t0) break;
-		}
-		if (t1>t0) break;
+		/* try for next read */
+		continue;
+	    }
+	}
 
-		usleep(SLEEPTIME);
-		/* next read attempt */
-		FD_ZERO(&fd);FD_SET(inh,&fd);
-		select(fileno(inhandle)+1,&fd,NULL,NULL,&tv);
-		if (!FD_ISSET(inh,&fd)) {
-		    emergencybreak=1;
-		}
-	    } while (!emergencybreak);      
-	} else {
-	    fclose(inhandle);
+	/* filling buffer */
+	if (repairidx) {
+	    /* transfer residual stuff at end of buffer to beginning */
+	    for (i=0;i<repairidx;i++)
+		ibfraw[i] = ibfraw[i+numret*sizeof(struct rawevent)];
 	}
-	/* print result */
-	if (splitoption) {
-	    fprintf(outhandle,"%d %d %d %d %d\n",
-		    cnt[0],cnt[1],cnt[2],cnt[3],cnt[4]);
-	} else {
-	    fprintf(outhandle,"%d\n",cnt[0]);
+	/* do real read */
+	retval=read(inh,&ibfraw[repairidx], (sizeof(struct rawevent) * 
+		    BUF_IN_INENVENTS)-repairidx); /* read raw events */
+
+	if (retval<(sizeof(struct rawevent)-repairidx)) {
+	    emergencybreak=-2;
+	    break;
 	}
-	fflush(outhandle);
+
+	/* cast to event raster */
+	inbuf = (struct rawevent *)ibfraw;
+	numret = (retval+repairidx)/sizeof(struct rawevent);
+
+	/* repair possible buffer read mismatch for next round */
+	repairidx = (repairidx + retval) % sizeof(struct rawevent); 
 	
-    } while ((--numofrounds)!=0);
+	if (!firstshot) { /* load first timing event */
+	    firstshot=1;
+	    re=inbuf[0];inbuf=&inbuf[1];numret--;
+	    t0=((unsigned long long)re.cv<<17) +
+		((unsigned long long )re.dv >>15)
+		+timespan;
+	    t1=t0-1;
+	}
+	
+	/* do actual counting */
+	for (i=0;i<numret;i++) {
+	    /* find out if timing is ripe for output*/
+	    t1=((unsigned long long)inbuf[i].cv<<17) +
+		((unsigned long long )dv >>15);
+	    if (t1>t0) { /* do output and update new timer */
+		/* print result */
+		fprintf(outhandle,"%d",cnt[0]); /* total counts */
+		/* display whatever detcount was selected */
+		for (j=1;j<=splitoption;j++) fprintf(outhandle," %d",cnt[j]);
+		fprintf(outhandle,"\n"); /* terminate with newline */
+		fflush(outhandle);
+		
+		/* clear counters and update expiry timer t0 */
+		for (j=0;j<9;j++) cnt[j]=0;
+		t0 += timespan;
+		
+		/* check for break conditions */
+		numofrounds--; /* result 0: terminate, <0: foreverloop */
+		if (numofrounds<0) numofrounds = -1; /* avoid overflow */
+		if (numofrounds==0) { /* we need to terminate */
+		    emergencybreak = 1;
+		    break;
+		}
+
+	    }
+
+	    /* increment according to mask */
+	    dv=inbuf[i].dv;
+	    for (j=1;j<9;j++) 
+		if ((dv & DETMASK) == cmask[j]) cnt[j]++; /* no extra cnts taken */
+	    if (cmask[0]&dv) cnt[0]++; /* any count */
+	}
+
+	usleep(SLEEPTIME); /* should only be reached in case of a successful read */
+	
+    } while (!emergencybreak);
+    
+    switch (emergencybreak) {
+	case -2: /* error in read call */
+	    retval = -emsg(6); 
+	    break;
+	case -1: /* error condition from select */
+	    retval = -emsg(11);
+	    break;
+	case  1: /* legitimate end of the loop */
+	    retval = 0;
+	    break;
+	case  2: /* timeout condition from select */
+	    retval = -emsg(12);
+	    break;
+    }
     
     free(ibfraw);
     fclose(outhandle);
     fclose(inhandle);
-    return 0;
+    return retval;
 }

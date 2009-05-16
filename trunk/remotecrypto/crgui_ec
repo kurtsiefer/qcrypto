@@ -906,8 +906,8 @@ proc startrawkeygen {} { #initiating raw key generation
     # check running of single counter
     if {$counterpid != 0} return
     # disable single counter buttons
-    .m4.1.f0.b12a configure -state disabled
-    .m4.1.f0.b12b configure -state disabled
+    .m4.3.f0.b12a configure -state disabled
+    .m4.3.f0.b12b configure -state disabled
     
     switch $negotiatemode {
 	1 { sendmsg st1
@@ -930,8 +930,8 @@ proc stoprawkeygen {} { #initialize shutdown
 	    shutdowninputpart2 ; # off the reader program
 	}
     }
-    .m4.1.f0.b12a configure -state normal
-    .m4.1.f0.b12b configure -state normal
+    .m4.3.f0.b12a configure -state normal
+    .m4.3.f0.b12b configure -state normal
    
 }
 proc removerawkeys {} {
