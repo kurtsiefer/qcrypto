@@ -1,0 +1,55 @@
+#!/bin/sh
+
+# script to save all temporary files into a backup target directory
+
+#name for bkup directory
+BD=~/crbkup
+
+# name of local machine
+NA=$HOSTNAME
+PN=${NA}progs
+
+#directory for programs
+PROG=$PWD
+
+# directory for temp files
+TD=/tmp/cryptostuff
+
+
+
+# prepare directories
+mkdir $BD
+mkdir $BD/$NA
+mkdir $BD/$PN
+
+# copy prog dir
+cp -pr $PROG $BD/$PN/
+cp -pr $PROG/../ec2 $BD/$PN/
+
+olddir=$PWD
+cd $BD/$NA
+
+# save specific files in tmpdir
+cp -pr  $TD/chop* ./
+cp -r $TD/cmdins ./
+cp -pr $TD/costream* ./
+cp -pr $TD/diagnosis_log ./
+cp -pr $TD/histos ./
+cp -pr $TD/debuglog ./
+cp -pr -r $TD/pf* ./
+cp -pr $TD/rawpacketindex ./
+cp -pr $TD/readeventserror ./
+cp -pr $TD/tilog ./
+cp -pr $TD/errcd_* ./
+
+# create archive for rawkeys
+cd $TD 
+
+tar -cvzf $BD/$NA/t3.tgz t3
+tar -cvzf $BD/$NA/t5.tgz t5
+tar -cvzf $BD/$NA/rawkey.tgz rawkey
+tar -cvzf $BD/$NA/finalkey.tgz finalkey
+tar -cvf $BD/$NA/receivefiles.tar receivefiles
+tar -cvf $BD/$NA/t1.tar t1
+
+cd $olddir
