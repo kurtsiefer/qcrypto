@@ -3,7 +3,7 @@
 # script to provide a gui interface to the crypto components
 #
 #
-# Copyright (C) 2005-2007 Christian Kurtsiefer, National University
+# Copyright (C) 2005-2009 Christian Kurtsiefer, National University
 #                         of Singapore <christian.kurtsiefer@gmail.com>
 #
 # This source code is free software; you can redistribute it and/or
@@ -65,6 +65,8 @@ set eventpid 0
 set rawreadpid 0
 set costreampid 0
 set errcpid 0
+set counterpid 0
+set chopperpid 0
 
 # coincitende time windows filter constants etc
 set rmtcoinctime 8 ; # coincidence time window for external coinc in 1/4 nsec
@@ -484,7 +486,9 @@ proc measurelocalcountrate {} { # measure local count rate with real hardware
     set localcountrate "--"
     set a [open $dataroot/rawevents r+]
     # read $a
-    set y [exec $programroot/readevents -a 1 -F -u -e -S 20 | $programroot/getrate > $dataroot/rawevents & ]
+    set y [exec $programroot/readevents -a 1 -F -u -e -S 20 \
+	       | $programroot/getrate \
+	       > $dataroot/rawevents & ]
     set localcountrate [gets $a]
     close $a
     set b [lindex $y 0]
@@ -505,19 +509,26 @@ proc startinputpart1 {} {
     set t2logpipe [open $dataroot/t2logpipe r+]
     fileevent $t2logpipe readable t2logactivity
     
-
     # prevent stress with rawevents:
     set rawdummyhandle [open $dataroot/rawevents r+]
-    # remove garbage?
-    # while {[fblocked $rawdummyhandle]==0} { set t [ gets $rawdummyhandle ] } 
 
     # remove t3 files
     set fl [glob -nocomplain $dataroot/t3/* ]
     foreach f $fl {file delete $f }
-    set chopperpid [exec $programroot/chopper -i $dataroot/rawevents -D $dataroot/sendfiles -d $dataroot/t3 -l $dataroot/t2logpipe -V 4 -U -p $proto -Q  5 -F -y 20 -m $maxeventdiff 2>>$dataroot/choppererror & ]
+
+    set chopperpid [exec $programroot/chopper \
+			-i $dataroot/rawevents \
+			-D $dataroot/sendfiles -d $dataroot/t3 \
+			-l $dataroot/t2logpipe -V 4 \
+			-U -p $proto -Q 5 -F -y 20 \
+			-m $maxeventdiff 2>>$dataroot/choppererror & ]
 
     # start readevents but keep passive
-    set readerpid [exec $programroot/readevents -a 1 -R -A -e -S 20 $detcorrection > $dataroot/rawevents 2>>$dataroot/readeventserror & ]
+    set readerpid [exec $programroot/readevents \
+		       -a 1 -R -A -e -S 20 \
+		       $detcorrection \
+		       > $dataroot/rawevents \
+		       2>>$dataroot/readeventserror & ]
     set locstat "transmitter ok" ; update
 }
 # shutdown reader/chopper
@@ -573,19 +584,22 @@ proc startinputpart2 {} {
     set fl [glob -nocomplain $dataroot/t1/* ]
     foreach f $fl {file delete $f }
 
-    # prevent stress with rawevents:
-    # set rawdummyhandle2 [open $dataroot/rawevents r+]
-    # remove garbage?
-    # while {[fblocked $rawdummyhandle2]==0} { set t [ gets $rawdummyhandle2 ] } 
-
 
     fileevent $t1logpipe readable t1logactivity
-    set chopperpid [exec $programroot/chopper2 -i $dataroot/rawevents -l $dataroot/t1logpipe -V 3 -D $dataroot/t1 -U -F -m $maxeventdiff &]
-#    set debugval "point2>$chopperpid<" ; update
-    set readerpid [exec $programroot/readevents -a 1 -R -A -e -S 20 $detcorrection > $dataroot/rawevents 2>>$dataroot/readeventserror &]
+    set chopperpid [exec $programroot/chopper2 \
+			-i $dataroot/rawevents \
+			-l $dataroot/t1logpipe -V 3 \
+			-D $dataroot/t1 -U -F \
+			-m $maxeventdiff &]
+
+    set readerpid [exec $programroot/readevents \
+		       -a 1 -R -A -e -S 20 \
+		       $detcorrection \
+		       > $dataroot/rawevents \
+		       2>>$dataroot/readeventserror &]
     update ; # temporary
 }
-#end 
+
 proc shutdowninputpart2 {} {
     global readerpid chopperpid negotiatemode t1logpipe rawdummyhandle2
     if {$negotiatemode != 2} return
@@ -594,7 +608,6 @@ proc shutdowninputpart2 {} {
     set readerpid 0
     set chopperpid 0
     catch {close $t1logpipe}
-    # catch {close $rawdummyhandle2}
 }
 proc enableinputpart2 {} {
     global negotiatemode readerpid debugval
@@ -673,7 +686,15 @@ proc periodefind2 {} {
     # ready to find periode
     set locstat "finding difference"
     exec usleep 100000
-    set aa [catch {exec $programroot/pfind -d $dataroot/receivefiles -D $dataroot/t1 -e $beginepoch -n $useperiods -V 1 -q $akfbufferorder 2>>$dataroot/pfinderror} a]
+    set aa [catch {exec $programroot/pfind \
+		       -d $dataroot/receivefiles \
+		       -D $dataroot/t1 \
+		       -e $beginepoch \
+		       -n $useperiods -V 1 \
+		       -q $akfbufferorder \
+		       2>>$dataroot/pfinderror} \
+		a]
+
     if {$aa !=0 } {
 	sendmsg en4 ; # emergency break
 	set debugval "pffail diff: $ldiff"
@@ -757,18 +778,16 @@ proc receivelogactivity2 {} {
     if {![eof $receivenotehandle]} {
 	gets $receivenotehandle a
 	set recepoch $a
-#	exec echo "reclogact2: $a" >>reclog2
 	if { $firstreceivedepoch eq "x"} {set firstreceivedepoch $a }
 	if { $negotiatemode==1 } {
 	    # send to splicer...
 	    puts $splicecomhandle $a
-#	    exec echo "splicecom input: $a" >>splicecomin
 	    flush $splicecomhandle
 	}
     } else {
 	set recepoch "*************"
     }
-# dangerous...update ; # this should display all received files on both sides...
+
 }
 
 #procedure to capture output from costream
@@ -882,7 +901,14 @@ proc requeststatus {} { # get costream status from other side
 }
 proc startrawkeygen {} { #initiating raw key generation
     global negotiatemode t1logcount
+    global counterpid
     .m1 configure -bg blue
+    # check running of single counter
+    if {$counterpid != 0} return
+    # disable single counter buttons
+    .m4.1.f0.b12a configure -state disabled
+    .m4.1.f0.b12b configure -state disabled
+    
     switch $negotiatemode {
 	1 { sendmsg st1
 	    startinputpart1
@@ -904,6 +930,9 @@ proc stoprawkeygen {} { #initialize shutdown
 	    shutdowninputpart2 ; # off the reader program
 	}
     }
+    .m4.3.f0.b12a configure -state normal
+    .m4.3.f0.b12b configure -state normal
+   
 }
 proc removerawkeys {} {
     global dataroot
@@ -920,19 +949,27 @@ proc removefinalkeys {} {
 proc startsinglecount {} {
     global programroot dataroot readerpid counterpid debugval
     global rawdummyhandle locstat counterpipe readerpid counterpipe
-    # prevent stress with rawevents:
-    # set rawdummyhandle [open $dataroot/rawevents r+]
+    global mdisp1
+    # disable main acquisition buttons
+    .m4.1.b10 configure -state disabled
+    .m4.1.b10a configure -state disabled
 
+    # select singe counter option
+    set mdisp1 5
+    
     # open countlogpipe
     set counterpipe [open $dataroot/cntlogpipe r+]
 
-    # remove old counter files
     # install handler procedure
     fileevent $counterpipe readable counterlogging
 
     # start readevents / counterchain
-    set counterpid [exec $programroot/getrate -i $dataroot/rawevents  -n 0 -s  > $dataroot/cntlogpipe & ]
-    set readerpid [exec $programroot/readevents -a 1 -A -e -S 20 -F -u > $dataroot/rawevents & ]
+    set counterpid [exec $programroot/getrate \
+			-i $dataroot/rawevents \
+			-n 0 -s  > $dataroot/cntlogpipe & ]
+    set readerpid [exec $programroot/readevents \
+		       -a 1 -A -e -S 20 -F -u \
+		       > $dataroot/rawevents & ]
 }
 
 proc stopsinglecount {} {
@@ -942,6 +979,10 @@ proc stopsinglecount {} {
     set counterpid 0
     set readerpid 0
     catch { close $counterpipe }
+
+    # enable main buttons again
+    .m4.1.b10 configure -state normal
+    .m4.1.b10a configure -state normal
 }
 proc counterlogging {} {
     global counterpipe debugval
@@ -1000,7 +1041,16 @@ proc install_errcd {mode} { # start deamon and hook it up to transferd
     if {$BERmode == 1} {set erropt "$erropt -B $targetBER" }
 
     # install deamon with appropriate option settings
-    set errcpid [eval exec $programroot/errcd  -c $dataroot/eccmdpipe -s $dataroot/ecspipe -r $dataroot/ecrpipe -d $dataroot/rawkey -f $dataroot/finalkey -l $dataroot/ecnotepipe -Q $dataroot/ecquery -q $dataroot/ecresp -V 2 $erropt -T 1 2>>$dataroot/errcd_err >>$dataroot/errcd_log & ]
+    set errcpid [eval exec $programroot/errcd \
+		     -c $dataroot/eccmdpipe \
+		     -s $dataroot/ecspipe \
+		     -r $dataroot/ecrpipe \
+		     -d $dataroot/rawkey -f $dataroot/finalkey \
+		     -l $dataroot/ecnotepipe \
+		     -Q $dataroot/ecquery -q $dataroot/ecresp \
+		     -V 2 $erropt -T 1 \
+		     2>>$dataroot/errcd_err \
+		     >>$dataroot/errcd_log & ]
     after 5000 errcdwatchdog
 }
 proc errcd_activity {} { # process an errcd notification
