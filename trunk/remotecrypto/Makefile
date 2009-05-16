@@ -1,4 +1,4 @@
-all:   chopper chopper2 pfind decompress costream splicer diagnosis transferd  getrate diagbb84
+all:   chopper chopper2 pfind decompress costream splicer diagnosis transferd  getrate diagbb84 getrate2
 
 chopper: chopper.c
 	gcc -Wall -O3 -o chopper chopper.c -lm
@@ -30,6 +30,9 @@ transferd: transferd.c
 getrate: getrate.c
 	gcc -Wall -O3 -o  getrate getrate.c
 
+getrate2: getrate2.c
+	gcc -Wall -O3 -o  getrate2 getrate2.c
+
 
 clean:
 	rm -f chopper
@@ -42,3 +45,4 @@ clean:
 	rm -f diagbb84
 	rm -f transferd
 	rm -f getrate
+	rm -f getrate2
