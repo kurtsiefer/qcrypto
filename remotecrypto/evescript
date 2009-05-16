@@ -11,8 +11,14 @@ dataroot=/tmp/eve/
 dataroot2=$dataroot/eve_t1
 
 # eventually create directories
-if [ -d $dataroot ] ; then ; else mkdir $dataroot ; fi
-if [ -d $dataroot2 ] ; then ; else mkdir $dataroot2 ; fi
+if [ -d $dataroot ] 
+ then echo "directory exists"
+ else mkdir $dataroot
+fi
+if [ -d $dataroot2 ] 
+ then echo "timing directory exists"
+ else mkdir $dataroot2
+fi
 
 
 # add a detector skew here if you like
