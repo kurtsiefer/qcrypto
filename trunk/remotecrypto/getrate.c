@@ -1,7 +1,9 @@
 /* getrate.c :  Part of the quantum key distribution software to detremine the
                 count rate of individual detectors from the output of the
 		timestamp data emitted by readevenrs.c. Description
-                see below. Version as of 20090516
+                see below. Version as of 20090722
+
+		This program replaces getrate and getrate2 at various locations
 
  Copyright (C) 2005-2009 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
@@ -24,7 +26,8 @@
    program to determine the count rate of the timestamp card by
    digesting data from the timestamp cards.
 
-   usage:  getrate [-i unfile] [-t time] [-o oufile]
+   usage:  getrate [-i unfile] [-t time] [-o oufile] [-t time] [-n events]
+                   [-s ] [-6 | 8] [-c]
 
    options/parameters:
 
@@ -47,6 +50,12 @@
                  additional ones are identified by 1-2 and 2-3 coincidences
    -8 :          same as -6 option, but with two more detectors corresponding
                  to coincidences 3-4 and 4-1
+   -c :          compensation option. If this is set, the single counts get also
+                 incremented if there is a coincidence event, e.g., a 
+		 coincidence event between detectors 1 and 2 contributes also to
+		 singles 1 and 2 if this option is set; otherwise, it does not
+		 contribute to the singles.
+
 
   History: 
   started to work sometime.
@@ -58,9 +67,10 @@
   modified core structure to avoid hangup in USB continuous mode...
   still needs to be tested for reliability 080707chk
   backported an error in free from getrate2.c 250708chk
-  added the zero counts tolerance - 16.5.09 chk
+  added the zero count option - 16.5.09 chk
   This is a merge between getrate2 and getrate.c - seems to work16.5.09chk
-
+  merged in the coincidence correction option  21.7.09chk
+  
 */
 
 #include <stdio.h>
@@ -132,10 +142,11 @@ int main (int argc, char *argv[]) {
     int firstshot;
     int zerocountoption = 1; /* if set, a zero is printed if there are no cnts,
 				if zero, an error takes place */
-    
+    int coincidencecorrection=0;
+
     /* parse arguments */
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "i:o:t:n:s68")) != EOF) {
+    while ((opt=getopt(argc, argv, "i:o:t:n:s68c")) != EOF) {
 	switch (opt) {
 	    case 'i': /* set input file name */
 		if(1!=sscanf(optarg,FNAMFORMAT,infilename)) return -emsg(1);
@@ -160,6 +171,9 @@ int main (int argc, char *argv[]) {
 		break;
 	    case '8': /* eight detectors */
 		splitoption=8;
+		break;
+	    case 'c': /* coincidence coorrection option */
+		coincidencecorrection=1;
 		break;
 	}
     }
@@ -289,8 +303,17 @@ int main (int argc, char *argv[]) {
 
 	    /* increment according to mask */
 	    dv=inbuf[i].dv;
-	    for (j=1;j<9;j++) 
-		if ((dv & DETMASK) == cmask[j]) cnt[j]++; /* no extra cnts taken */
+	    if (coincidencecorrection) { /* we should do the correction */
+		for (j=1;j<9;j++) 
+                    /* no extra cnts taken */
+		    if ((dv & cmask[j]) == cmask[j]) cnt[j]++; 
+	    } else { /* no correction */
+		for (j=1;j<9;j++) 
+                    /* no extra cnts taken */
+		    if ((dv & DETMASK) == cmask[j]) cnt[j]++; 
+	    }
+
+
 	    if (cmask[0]&dv) cnt[0]++; /* any count */
 	}
 
