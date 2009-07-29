@@ -1,8 +1,8 @@
 /* chopper2.c : Part of the quantum key distribution software for partitioning
                 timestamp data on the high count rate sidde. Description
-                see below. Version as of 20070101
+                see below. Version as of 20090729
 
- Copyright (C) 2005-2006 Christian Kurtsiefer, National University
+ Copyright (C) 2005-2009 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -30,12 +30,16 @@
    status: worked on feb7 2006 with >53k epochs
     added -V 3 option for counting singles 21feb06chk not tested yet
     fixed neg epoch overflow check 7.5.06chk
+    merged in changes for deviceindependent protocol 29.7.2009chk.
+
+
 
    usage: chopper2 [-i infilename]
                    -O outfilename1 | -D outfiledir1 | -S socket1
 		   [-l logfile ] [-V verbosity] [ -F ]
 		   [-U | -L]
 		   [-m maxtime ]
+		   [-4 | -6] 
 		   
    implemented options:
    
@@ -73,6 +77,10 @@
 		     event counting. format: epoch and 5 cnts spc separated
    -F :          flushmode. If set, the logging output gets flushed after
                  every write attempt.
+   -4:           full backwards compatibility option with logging where
+                 single counts include local coincidences. Also reduces the
+		 number of events in the output log to five (total cnts and
+		 individual detector lines).
 
 PROTECTION OPTION
    -m maxnum:    maximum time for a consecutive event to be meaningful. If
@@ -90,12 +98,13 @@ inserted flush option 19.9.05chk
 inserted -m option (around jan 2006 chk)
 inserted -V 3 option
 checked rollover problem in neg difference test 070306chk
+merges with 6-detector version and introduced -4 compat option 29.7.09chk
 
 ToDo:
-does not read an input file properly -ok
 check buffer sizes
 cleanup typedefs
 cleanup debuglogs
+remove fishyness correction; obsolete with USB hardware??
    
 */
 #include <stdlib.h>
@@ -133,15 +142,17 @@ int handlein, handle1; /* in and out file handles */
 FILE* loghandle; /* for log file */
 int thisepoch_converted_entries; /* for output buffer */
 int detcnts[16]; /* buffer for histogramming events */
-int sum[5]; /* do summation */
+int sum[7]; /* do summation */
 int index1; /* index in outbuffer field */
 unsigned int *outbuf1; /* output buffer pointer */
 int flushmode = DEFAULT_FLUSHMODE;
 FILE *debuglog;
 
-int smidx[6] = {7,15,1,2,4,8}; /* output pattern  ;something is wrong with
-				  the first entry.... */
-
+int smidx[7] = {15,1,2,4,8,3,6}; /* output pattern - now six det capable */
+int fourdetectorlogoption = 0; /* this is to force full backward compatibility,
+				  where the reported single detector events
+			          include possible coincidences. Also, only 
+			          four values are logged instead of six. */
 
 /* error handling */
 
@@ -292,13 +303,28 @@ int close_epoch() {
 			head1.epoc,thisepoch_converted_entries);
 		break;
 	    case 3: /* do complex log */
-		for (i=0;i<5;i++) {
-		    sum[i]=0; 
-		    /* construct individual detector sums */
-		    for (j=0;j<16;j++) if (j & smidx[i+1]) sum[i]+=detcnts[j];
+		if (fourdetectorlogoption) { /* old style logging */
+		    for (i=0;i<5;i++) {
+			sum[i]=0; 
+			/* construct individual detector sums */
+			for (j=0;j<16;j++) 
+			    if (j & smidx[i]) 
+				sum[i]+=detcnts[j];
+		    }
+		    fprintf(loghandle,"%08x\t%d\t%d\t%d\t%d\t%d\n",head1.epoc,
+			    sum[0],sum[1],sum[2],sum[3],sum[4]);
+		} else {
+		    for (i=0;i<7;i++) {
+			sum[i]=0; 
+			/* construct individual detector sums */
+			for (j=0;j<16;j++) 
+			    if ((i<1) || (j == smidx[i])) 
+				sum[i]+=detcnts[j];
+		    }
+		    fprintf(loghandle,"%08x\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+			    head1.epoc,
+			    sum[0],sum[1],sum[2],sum[3],sum[4],sum[5],sum[6]);
 		}
-		fprintf(loghandle,"%08x\t%d\t%d\t%d\t%d\t%d\n",head1.epoc,
-			sum[0],sum[1],sum[2],sum[3],sum[4]);
 		break;
 	    default:
 		fprintf(loghandle,"Undefined verbosity level %d\n",
@@ -336,7 +362,7 @@ int main (int argc, char *argv[]) {
 
     /* parse options */
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "i:O:D:l:V:ULFm:")) != EOF) {
+    while ((opt=getopt(argc, argv, "i:O:D:l:V:ULFm:4")) != EOF) {
 	switch(opt) {
 	    case 'V': /* set verbosity level */
 		if (1!=sscanf(optarg,"%d",&verbosity_level)) return -emsg(1);
@@ -369,6 +395,9 @@ int main (int argc, char *argv[]) {
 		if (1!=sscanf(optarg,"%lld",&maxdiff)) return -emsg(17);
 		/* adjust from microseconds to 1/8 nsec */
 		maxdiff *= 8000;
+		break;
+	    case '4': /* full backwards compat option */
+		fourdetectorlogoption=1;
 		break;
 
 	}
@@ -435,7 +464,7 @@ int main (int argc, char *argv[]) {
 	for (i=0;i<inbytesread-i1;i++) ibf2[i]=ibf2[i+i1];
 	i1=inbytesread-i1;  /* leftover from last time */
 	ibf2a=&ibf2[i1]; /* pointer to next free character */
-	if (i1) fprintf(stderr,"got leftover: i1= %d bytes /n",i1);
+	// if (i1) fprintf(stderr,"got leftover: i1= %d bytes /n",i1);
 	if (i1) fprintf(debuglog,"got leftover: i1= %d bytes /n",i1);
 
 	/* read in next bufferfill */

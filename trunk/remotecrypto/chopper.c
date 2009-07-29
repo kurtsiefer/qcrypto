@@ -83,6 +83,10 @@
 		 2 : log epoch, length with text
 		 3 : log epoch, length, bitlength with text
 		 4 : log epoch, detector histos without text
+   -4            sets the number of detectors to be logged to 4 (default)
+                 in service mode. Has no effect in crypto modes
+   -6            sets the number of detectors to be logged to 6. This option
+                 has only an effect in service mode
    -F            flushmode. If set, the logging info is flushed after every
                  write. useful if used for driving the transfer deamon.
 
@@ -100,6 +104,13 @@
 		    msb is 0, the lsb has BB84 meaning, if msb is 1, a multi-
 		    or no-coincidence event was recorded (lsb=1), or a pair
 		    coincidence was detected (lsb=0).
+                ---------modifications for device-independent -------- 
+                 3: six detectors connected to this side, used for the
+                    device-independent mode. three transmitted bits, indicating
+		    bell basis or key basis
+		 4: four detectors connected to this side, device-indep
+		    operation. only time is transmitted.
+
 		 
 PROTECTION OPTION
    -m maxnum:    maximum time for a consecutive event to be meaningful. If
@@ -118,6 +129,7 @@ PROTECTION OPTION
    !!!!!!!modified input section select etc
    added -m option 18.1.06 chk
    tried to fix rollover problem in difference test 060306chk
+   merge with deviceindep protocol set 29.7.09chk
 
  To Do:
    populate lookup tables -ok?
@@ -128,6 +140,7 @@ PROTECTION OPTION
    check buffer sizes
    remove bitstosend calc from main loop
    change stream-2 endword definition in filespec and program
+   cleanup of debug logging and fishyness
 
 */
 #include <stdlib.h>
@@ -171,20 +184,22 @@ typedef struct protocol_details {
     int bitsperentry3;
     int detectorentries; /* number of detectorentries; 16 for 4 detectors;
 			    this value -1 is used as bitmask for status */
+    int numberofdetectors; /* to cater logging purposes for more than
+			      4 detectors */
     int pattern2[16];
     int pattern3[16];} pd;
 
-#define PROTOCOL_MAXINDEX 2
+#define PROTOCOL_MAXINDEX 4
 
 static struct protocol_details proto_table[] = {
 {/* protocol 0: all bits go everywhere */
-    4,4,16,
+    4,4,16,4,
     {0,1,2,3,4,5,6,7,8,9,0xa,0xb,0xc,0xd,0xe,0xf}, /* pattern 2 */
     {0,1,2,3,4,5,6,7,8,9,0xa,0xb,0xc,0xd,0xe,0xf} /* pattern 3 */
 },
 {/* protocol 1: standard BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
     HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 */
-    1,1,16,
+    1,1,16,4,
     {0,0,1,0, 0,0,0,0, 1,0,0,0, 0,0,0,0}, /* pattern 2 : basis */
     {0,0,0,0, 1,0,0,0, 1,0,0,0, 0,0,0,0} /* pattern 3 : result */
 },
@@ -192,9 +207,25 @@ static struct protocol_details proto_table[] = {
     HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 
     if an illegal pattern was detected, a pair info pattern (2) or a
     multi/no coincidence pattern (3) is recorded*/
-    2,2,16,
+    2,2,16,4,
     {3,0,1,2, 0,2,2,3, 1,2,2,3, 2,3,3,3}, /* pattern 2 : basis */
     {3,0,0,2, 1,2,2,3, 1,2,2,3, 2,3,3,3} /* pattern 3 : result */
+},
+{/* protocol 3: device-independent, six-detectors @chopper. assumed sequence:
+    V+22.5,-22.5, H+22.5, +45+22.5, H, V (!!!CHECK SPECS!!!)
+    illegal pattern: value 5, bell result: value 0-3, key result: value 4
+    the local file keeps the original detector combination */
+    3,4,16,6,
+    {5,0,1,4, 2,5,4,5, 3,5,5,5, 5,5,5,5}, /* pattern2: bell/key */
+    {0,1,2,3, 4,5,6,7, 0x8,0x9,0xa,0xb, 0xc,0xd,0xe,0xf} /* local: orig */
+},
+{/* protocol 4: device-independent, four detectors @chopper. assumed sequence:
+    V,-, H, + (!!!CHECK SPECS!!!)
+    illegal pattern: value 0, otherwise 1.
+    the local file keeps the original detector combination */
+    1,4,16,4,
+    {0,1,1,0, 1,0,0,0, 1,0,0,0, 0,0,0,0}, /* pattern2: legal (1) /illegal (0)*/
+    {0,1,2,3, 4,5,6,7, 0x8,0x9,0xa,0xb, 0xc,0xd,0xe,0xf} /* local: orig */
 },
     };
 
@@ -269,9 +300,10 @@ int type3mode = 0; /* same as for type2 files */
 int proto_index = DEFAULT_PROTOCOL; /* defines which proto is used */
 int uepoch= DEFAULT_UEPOCH; /* universal epoch mode 0: no, 1: yes */
 int flushmode = DEFAULT_FLUSHMODE; /* if !=0, flush after every write */
-int sum[5] ; /* for keeping detector sums */
-int sumindex[5] = {0xf, 1,2,4,8}; /* for logging */
-int detcnts[16]; /* detector conts */
+int sum[7] ; /* for keeping detector sums */
+int sumindex[7] = {0xf, 1,2,4,8,3,6}; /* for logging. last two for 6 det */
+int detcnts[16]; /* detector counts */
+int numberofdetectors = 4; /* default number of detctors */
 
 /* structures for output buffer headers */
 typedef struct header_2 { /* header for type-2 stream packet */
@@ -462,13 +494,30 @@ int close_epoch() {
 			type2bitwidth);
 		break;
 	    case 4: /* complex log */
-		for (i=0;i<5;i++) {
-		    sum[i]=0;
-		    for (j=0;j<16;j++) if (sumindex[i] & j) sum[i]+=detcnts[j];
+		switch (numberofdetectors) {
+		    case 4:
+			for (i=0;i<5;i++) {
+			    sum[i]=0;
+			    for (j=0;j<16;j++) 
+				if (sumindex[i] & j) sum[i]+=detcnts[j];
+			}
+			fprintf(loghandle,"%08x\t%d\t%d\t%d\t%d\t%d\n",
+				head2.epoc,sum[0],sum[1],sum[2],sum[3],sum[4]);
+			break;
+		    case 6: /* cater for six-detector case. The single
+			       count rates only reflect correctly identified
+			       single-detector events */
+			for (i=0;i<7;i++) {
+			    sum[i]=0;
+			    for (j=0;j<16;j++) 
+				if ((i==0) || (sumindex[i] == j))
+				    sum[i]+=detcnts[j];
+			}
+			fprintf(loghandle,"%08x\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+				head2.epoc,sum[0],sum[1],sum[2],sum[3],
+				sum[4],sum[5],sum[6]);
 		}
-		fprintf(loghandle,"%08x\t%d\t%d\t%d\t%d\t%d\n",
-			head2.epoc,sum[0],sum[1],sum[2],sum[3],sum[4]);
-
+		break;
 	}
 	if (flushmode) fflush(loghandle);
 	fprintf(debuglog,"debuglog:%8x\n",head2.epoc);
@@ -532,7 +581,7 @@ int main (int argc, char *argv[]) {
 
     /* parsing options */
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "V:i:O:D:o:d:ULl:p:q:Q:Fy:m:")) != EOF) {
+    while ((opt=getopt(argc, argv, "V:i:O:D:o:d:ULl:p:q:Q:Fy:m:46")) != EOF) {
 	switch (opt) {
 	    case 'V': /* set verbosity level */
 		if (1!=sscanf(optarg,"%d",&verbosity_level)) return -emsg(1);
@@ -589,7 +638,8 @@ int main (int argc, char *argv[]) {
 		/* adjust from microseconds to 1/8 nsec */
 		maxdiff *= 8000;
 		break;
-		
+ 	    case '4': numberofdetectors=4;break;
+ 	    case '6': numberofdetectors=6;break;
 	}
     }
     /* parameter consistency check */
@@ -614,6 +664,9 @@ int main (int argc, char *argv[]) {
 	type2patterntable[i]=proto_table[proto_index].pattern2[i];
 	type3patterntable[i]=proto_table[proto_index].pattern3[i];
     };
+    /* set number of detectors in case we are not in service mode */
+    if (proto_index) 
+	numberofdetectors = proto_table[proto_index].numberofdetectors;
 
     /* open log files */
     if (verbosity_level>=0) {
@@ -696,7 +749,6 @@ int main (int argc, char *argv[]) {
 	    return -emsg(15); /* other error  */
 	}
 	
-	/* printf("point2\n"); */
 	inbytesread+=i1; /* add leftovers from last time */
 	inelements=inbytesread/sizeof(struct rawevent);
 	inpointer=inbuffer;
@@ -720,9 +772,6 @@ int main (int argc, char *argv[]) {
 		     + t_fine; /* get event time */
 	    if (t_new < t_old ) { /* negative time difference */
 		if ((t_new-t_old) & 0x1000000000000ll) { /* check rollover */
-		    fprintf(debuglog,
-			"chopper: point 1, old: %llx, new: %llx\n",
-			t_old,t_new);fflush(debuglog);
 		    inpointer++;
 		    continue; /* ...are ignored */
 		}
