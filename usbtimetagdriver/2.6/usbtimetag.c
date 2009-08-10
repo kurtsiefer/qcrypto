@@ -1,7 +1,7 @@
-/*  usbtimetag.c:  This is the device driver for the timetag unit, in
-                   its version with a USB interface. Version as of 20071228.
+/* usbtimetag.c:  This is the device driver for the timetag unit, in
+                   its version with a USB interface. Version as of 20090810.
 
- Copyright (C) 2006-2007 Christian Kurtsiefer, National University
+ Copyright (C) 2006-2009 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -53,6 +53,10 @@
      acknowledges a successful mmap. check dmesg for it in case...
    - enlarged minimum buffer size to the minimum page size from dma malloc.
      ATTENTION: make sure that mmaped size is a power of 2!!!!
+   
+   migration to kernel versions which don't have a nopage method anymore. This
+     was tested with a 2.6.27 kernel on a suse11.1 x86_64 machine. Not sure
+     as of which kernel the fault method works reliable. 10.8.2009chk 
 
 
    ToDo:
@@ -79,6 +83,12 @@
 #define HAS_NO_OWNER so_sad
 #define HAS_NO_DEVFS_MODE
 #endif
+
+/* fix the nopage -> fault method transition */
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,22) )
+#define HAS_FAULT_METHOD
+#endif
+
 
 /* fix missing page count command in kernel version >2.6.13 or so */
 #ifndef set_page_count
@@ -343,7 +353,11 @@ static int already_transferred_bytes(struct cardinfo *cp) {
 
 /* completion handler for urbs; this callback should re-populate urbs as
    they fall free */
-static void completion_handler(struct urb *urb, struct pt_regs *regs) {
+/* old code seemed to use other prototype; no idea when this went, it was
+   already away in kernel version 2.6.22. regs not needed, so just drop it
+   and hope I get a feedback if itbreaks something old:
+   static void completion_handler(struct urb *urb, struct pt_regs *regs) { */
+static void completion_handler(struct urb *urb) {
     struct cardinfo *cp=(struct cardinfo *)urb->context;
     unsigned int jf,jd; /* stores jiffies and difference */
     int tfl; /* transfer length for the next round */
@@ -476,6 +490,38 @@ static void usbdev_vm_open(struct  vm_area_struct * area) {
 static void usbdev_vm_close(struct  vm_area_struct * area) {
     /* printk("vm close called.\n"); */
 }
+
+/*************************** transition code *************/
+#ifdef HAS_FAULT_METHOD      /* new fault() code */
+static int usbdev_vm_fault(struct vm_area_struct *area, struct vm_fault *vmf) {
+    struct cardinfo *cp = (struct cardinfo *)area->vm_private_data;
+    unsigned long ofs = (vmf->pgoff << PAGE_SHIFT); /* should be addr_t ? */
+    unsigned long intofs;
+    unsigned char * virtad = NULL; /* start ad of page in kernel space */
+    struct dma_page_pointer *pgindex;
+
+    /* find right page */
+    /* TODO: fix references... */
+    pgindex = cp->dma_main_pointer; /* start with first mem piece */
+    intofs=0; /* linear offset of current mempiece start */
+    while (intofs+pgindex->fullsize<=ofs) {
+	intofs +=pgindex->fullsize;
+	pgindex=pgindex->next;
+	if (pgindex == cp->dma_main_pointer) {
+            /* offset is not mapped */
+	    return VM_FAULT_SIGBUS; /* cannot find a proper page  */
+	}
+    }; /* pgindex contains now the relevant page index */
+  
+    /* do remap by hand */
+    virtad = &pgindex->buffer[ofs-intofs];
+    vmf->page = virt_to_page(virtad); /* return page index */
+
+    return 0;  /* everything went fine */ 
+}
+
+#else    /* here comes the old nopage code */
+
 /* vm_operations, for the real mmap work via nopage method */
 static struct page *usbdev_vm_nopage(struct vm_area_struct * area, unsigned long address, int *nopage_type) {
     struct page *page = NOPAGE_SIGBUS; /* for debug, gives mempage */
@@ -509,11 +555,17 @@ static struct page *usbdev_vm_nopage(struct vm_area_struct * area, unsigned long
     *nopage_type = VM_FAULT_MINOR; /* new in kernel 2.6 */
     return page;
 }
+#endif
+
 /* modified from kernel 2.2 to 2.4 to have only 3 entries */
 static struct vm_operations_struct usbdev_vm_ops = {
     open:      usbdev_vm_open,
-    close:     usbdev_vm_close, 
-    nopage:    usbdev_vm_nopage, /* nopage */
+    close:     usbdev_vm_close,
+#ifdef HAS_FAULT_METHOD
+    fault:     usbdev_vm_fault,  /* introduced in kernel 2.6.23 */
+#else
+    nopage:    usbdev_vm_nopage, /* nopage, obsoleted in kernel 2.6.30? */
+#endif
 };
 
 static int usbdev_mmap(struct file * file, struct vm_area_struct *vma) {
@@ -538,6 +590,9 @@ static int usbdev_mmap(struct file * file, struct vm_area_struct *vma) {
     /* do mmap to user space */
     vma->vm_ops = &usbdev_vm_ops; /* get method */
     vma->vm_flags |= VM_RESERVED; /* avoid swapping , also: VM_SHM?*/
+#ifdef HAS_FAULT_METHOD
+    vma->vm_flags |= VM_CAN_NONLINEAR; /* has fault method; do we need more? */
+#endif
 
     /* populate the urbs - perhaps this should go to an ioctl starting
        the engine ? */
