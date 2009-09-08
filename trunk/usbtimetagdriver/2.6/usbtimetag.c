@@ -516,7 +516,7 @@ static int usbdev_vm_fault(struct vm_area_struct *area, struct vm_fault *vmf) {
     /* do remap by hand */
     virtad = &pgindex->buffer[ofs-intofs];
     vmf->page = virt_to_page(virtad); /* return page index */
-    get_page(page); /* increment page use counter */
+    get_page(vmf->page); /* increment page use counter */
 
     return 0;  /* everything went fine */ 
 }
