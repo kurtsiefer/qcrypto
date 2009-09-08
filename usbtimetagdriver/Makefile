@@ -16,8 +16,10 @@ loadersrc1=$(loaderdir)/udevsrc
 loadersrc2=$(loaderdir)/hotplgsrc
 loadertarget1=$(loaderdir)/60-timestamp.rules
 loadertarget2=$(loaderdir)/t5.hotplug
+udevscript1="s/users/$(shell id -gn)/g"
+udevscript2="s/DRIVERPATH/$(localdir)\/2.6/g"
 
-all: driver hotplug
+all: driver $(loadertarget1) $(loadertarget2)
 
 # execute version-specific makefile
 .PHONY: driver
@@ -25,7 +27,7 @@ driver:	$(loadertarget1) $(loadertarget2)
 	$(MAKE) -C $(version)
 
 $(loadertarget1): $(loadersrc1)
-	cat $(loadersrc1) | sed "s/DRIVERPATH/$(localdir)\/2.6/g" >$(loadertarget1)
+	sed -e $(udevscript1) -e $(udevscript2) $(loadersrc1) >$(loadertarget1)
 
 $(loadertarget2): $(loadersrc2)
 	cat $(loadersrc2) | sed "s/DRIVERPATH/$(localdir)\/2.6/g" >$(loadertarget2)
