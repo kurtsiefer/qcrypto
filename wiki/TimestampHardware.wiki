@@ -50,3 +50,6 @@ Due to some polarity errors in clock handover form the fast counter to the slow 
 The phase interpolation stage does currently not lead to an equidistant distribution of time intervals spaced at 125ps. The effective time resolution is about 320-300ps, with some intervals on some cards not being resolved better than 400ps.
 
 For one of the phase patterns, there is an ambiguity between the the main counter having made the transition from one state to the other. This effectively leads to time readings which can be 2 ns off for this particulatr phase pattern. Cure to this problem is clear, but not yet implemented in the hardware we have. Consequence of this problem is a small fraction of satellite timing peaks 2ns apart in correlation functions.
+
+= Hardware availability = 
+We think of opensourcing the whole hardware description, but the bottleneck for that is the time it takes me to tidy up documentation for it. While mostly ready for an outsourced manufacturing process, we are still not there yet (yet improving), and it still takes me about a day to build one of those, assuming the parts are ready. If you are interested in making/obtaining one, feel free to contact me. Absence of documntation is not a question of not wanting to publish it, but lack of time in documenting stuff.
