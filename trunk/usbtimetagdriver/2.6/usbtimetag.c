@@ -686,7 +686,7 @@ static int usbdev_flat_ioctl(struct inode *inode, struct file *filp, unsigned in
     
     if (!cp->dev) return -ENODEV;
 
-    switch (cmd) {
+    switch (cmd) { /* to distill out real command */
 	/* simple commands which send direct control urbs to the device */
 	case SendDac: case Send_RF_parameter: /* 16 bit argument */
 	case SetWarningwatermark:
@@ -864,14 +864,11 @@ static void __exit usbdev_remove_one(struct usb_interface *interface) {
     struct cardinfo *cp=NULL; /* to retreive card data */
     /* do the open race condition protection later on, perhaps with a
        semaphore */
-    lock_kernel();  /* to prevent race condition with open */
     cp = (struct cardinfo *)usb_get_intfdata(interface);
     if (!cp) {
 	printk("usbdev: Cannot find device entry \n");
 	return;
     }
-    /* printk("%s: try to remove card info structure at %p\n",
-       USBDEV_NAME,cp); */
 
     /* try to find out if it is running */
     if (cp->iocard_opened) {
@@ -899,14 +896,11 @@ static void __exit usbdev_remove_one(struct usb_interface *interface) {
 	cif=cp->next;
     }
     if (cp->next) cp->next->previous = cp->previous;
-    /* printk("%s: next/previous entry: %p / %p, cif: %p\n",
-       USBDEV_NAME, cp->next, cp->previous, cif);  */
 
     /* mark interface as dead */
     usb_set_intfdata(interface, NULL);
     usb_deregister_dev(interface, &timestampclass);
 
-    unlock_kernel();
 
     kfree(cp); /* give back card data container structure */
     
