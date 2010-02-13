@@ -34,6 +34,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "timetag_io2.h"
 #include "usbtimetagio.h"
@@ -58,9 +59,14 @@ int initialize_DAC(int handle) {
    for the 10 bit (8 bit) converter AD5318 (AD5308).
 */
 int set_DAC_channel(int handle, int channel, int value){
+  int retval;
   if ((value<0 )|| (value > 0xfff)) return -1; /* value out of range */
   if ((channel<0) || channel>7) return -1;  /* channel out of range */
-  return ioctl(handle, SendDac, (((channel & 7)<<12) | (value & 0xfff)));
+  /* printf("calling code %d with argument %d\n",SendDac,
+     (((channel & 7)<<12) | (value & 0xfff))); */
+  retval=ioctl(handle, SendDac, (((channel & 7)<<12) | (value & 0xfff)));
+  /* printf("retval: %d, errno:%d\n",retval,errno); */
+  return retval;
 }
 
 /*******************************************************************/

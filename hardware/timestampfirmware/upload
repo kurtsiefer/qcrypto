@@ -1,0 +1,30 @@
+#!/bin/sh
+
+# script to upload firmware into the cypress chip using the fxload package.
+# This script searches a 'naked' FX2 chip and passes the proper parameters
+# to the fx2 command. (C) 2009-2010, Christian Kurtsiefer
+
+# Hint: In case you don't have the usb devices in their raw form at
+# /proc/bus/usb/...., you may have to run the command (as su):
+#     mount -t usbfs none /proc/bus/usb
+
+# source program:
+firmware="tp8.ihx"
+
+# Attention: between SuSE9.3 and 10.0, the location of lsusb has changed.
+
+#search Ez-USB chip
+a=$(/usr/bin/lsusb |grep "04b4:8613")
+
+# check if board is present
+if test -z "$a";
+   then
+   echo "No naked EZ-usb chip was found. Perhaps reset the board?"
+   exit -1
+fi;
+
+# create the corresponding device file
+b=$(echo $a |sed 's/Bus \([0-9]\{3\}\).* \([0-9]\{3\}\).*/\/proc\/bus\/usb\/\1\/\2/m')
+
+# run the loader
+fxload -I $firmware -t fx2 -vv -D $b
