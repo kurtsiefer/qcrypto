@@ -50,6 +50,7 @@
 		  [-a accidendist ]
   		  [-H histogramname ]
   		  [-h histogramlength ] 
+		  [-S s1,s2,s3,s4 ]
 		  
   DATA STREAM OPTIONS:
    -i infile2:      filename of type-2 packets. Can be a file or a socket
@@ -102,6 +103,10 @@
                     The larger the num, the longer the memory of the filter.
 		    for num=0, no change will take place. This is also the
 		    default.
+   -t timediff      time difference between the t1 and t2 input streams. This
+                    is a mandatory option, and defines the initial time
+		    difference between the two local reference clocks in
+		    multiples of 125ps.
    -T zeropolicy    policy how to deal with no valid coincidences in present
                     epoch. implemented:
 		    0: do not emit a stream-3 and stream-4 file.
@@ -117,6 +122,10 @@
 		    obtain the full 4x4 matrix.
    -h histolen      number of epochs to be included in a histogram file.
                     default is 10.
+   -S s1,s1,s3,s4   detector skew information. This option adds a detector-
+                    dependent skew time to single-detection events. This option
+		    makes only sense for some nonstandard applications and
+		    is similar to the detector skew option in readevent3.c
    
   LOGGING & NOTIFICATION:
    -l logfile1:  notification target for consumed epochs of type-1 packets.
@@ -166,6 +175,7 @@
  
    modified to get stat right before reading file...compiles feb12_06
    hopefully repaired date overflow bug in bit #63  18.10.06chk
+   added detector deskew option -S for special apps 11.5.10chk
 
 
   ToDo:
@@ -493,6 +503,7 @@ char *errormessage[] = {
   "error reading histogram length or value not >0",
   "error reading histogram bas ename", /* 70 */
   "cannot stat stream 2 handle",
+  "wrong skew format. needs -S v1,v2,v3,v4",
 };
 
 int emsg(int code) {
@@ -912,7 +923,9 @@ int main (int argc, char *argv[]) {
     unsigned int indexdiff4,t4,t4a; /* temporary variable for timedifference */
     int opt,i,j,retval,d;
     int opcnt;  /* limit counter for file waiting */
-
+    int skewcorrectmode=0; /* now detector de-skew */
+    int dskew[8]; /* detector deskew registers */
+    long long int skewtab[16];
    
     
     /* parsing options */
@@ -923,7 +936,7 @@ int main (int argc, char *argv[]) {
 	    filterconst_stream4,type4bitwidth);
 
 
-    while ((opt=getopt(argc, argv, "V:F:f:d:D:O:o:i:I:kKe:q:Q:M:m:L:l:n:t:w:u:r:R:p:T:G:a:h:H:")) != EOF) {
+    while ((opt=getopt(argc, argv, "V:F:f:d:D:O:o:i:I:kKe:q:Q:M:m:L:l:n:t:w:u:r:R:p:T:G:a:h:H:S:")) != EOF) {
 	i=0; /* for setinf names/modes commonly */
 	/* fprintf(debuglog,"got option >>%c<<, filter: %d, width: %d\n",
 	   opt,filterconst_stream4,type4bitwidth); */
@@ -1018,6 +1031,12 @@ int main (int argc, char *argv[]) {
 		if (sscanf(optarg,FNAMFORMAT,histologname) != 1)
 		    return -emsg(70);
 		break;
+	    case 'S': /* detector skew correction */
+	        if (4!=sscanf(optarg,"%d,%d,%d,%d", &dskew[0],&dskew[1],
+			      &dskew[2],&dskew[3])) return -emsg(72);
+		skewcorrectmode =1;
+		break;
+
 	    default: /* something fishy */
 		fprintf(debuglog,"got code I should not get: >>%c<<\n",opt);
 		break;
@@ -1030,6 +1049,13 @@ int main (int argc, char *argv[]) {
 
     /* eventually initiate histogram */
     if (histologname[0]) init_histo();
+
+    /* initiate skew correction for t1 files */
+    for (i=0;i<16;i++) skewtab[i]=0;
+    if (skewcorrectmode==1) {
+      for (i=0;i<4;i++) skewtab[1<<i]=dskew[i];
+    }
+
 
     /* to estimate background */
     referencewindow2=accidental_dist;
@@ -1168,7 +1194,8 @@ int main (int argc, char *argv[]) {
 	    /* get a value out of the list */
 	    t1old=t1;
 	    t1=((unsigned long long)pointer1[ecnt1].cv<<17)
-		+(pointer1[ecnt1].dv>>15)+epoch1_offset; /* current timing */
+		+(pointer1[ecnt1].dv>>15)+epoch1_offset
+	        + skewtab[(pointer1[ecnt1].dv & 0x0f)]; /* current timing */
 	    if (t1<=t1old) { /* something's fishy. ignore this value */
 		ecnt1++;
 		t1=t1old;
