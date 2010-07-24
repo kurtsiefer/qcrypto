@@ -792,14 +792,13 @@ static int __init usbdev_init_one(struct usb_interface *intf, const struct usb_d
     cp->totalurbs=0;   /* initially reserved urbs */
     cp->maxpacket=0; /* do we really need to initialize?? */
     cp->transfers_running = 0; /* no transfers are active */
-
+    
     retval=usb_register_dev(intf, &timestampclass);
     if (retval) { /* coul not get minor */
 	printk("%s: could not get minor for a device.\n",USBDEV_NAME);
 	goto out2;
     }
     cp->minor = intf->minor;
-
 
     /* find device */
     for (iidx=0;iidx<intf->num_altsetting;iidx++){ /* probe interfaces */
@@ -910,7 +909,7 @@ static void __exit usbdev_remove_one(struct usb_interface *interface) {
 
 static struct usb_device_id usbdev_tbl[] = {
     {USB_DEVICE(USB_VENDOR_ID_CYPRESS, USB_DEVICE_ID)},
-    {},
+    {}
 };
 
 MODULE_DEVICE_TABLE(usb, usbdev_tbl);
@@ -923,6 +922,7 @@ static struct usb_driver usbdev_driver = {
     .id_table =  usbdev_tbl,
     .probe =     usbdev_init_one,
     .disconnect =    usbdev_remove_one,
+    .id_table = usbdev_tbl,
 };
 
 static void  __exit usbdev_clean(void) {
