@@ -770,8 +770,8 @@ int main(int argc, char *argv[]) {
 		USBflushoption=1;
 		break;
 	    case 'U': /* specify alternate device name */
-	      if (1!=sscanf(optarg,"199%s",usbtimetag_devicename)) 
-		return -emsg(15);
+		if (1!=sscanf(optarg,"%199s",usbtimetag_devicename))
+		    return -emsg(15);
 	        usbtimetag_devicename[199]=0;
 		break;
 	    default:
