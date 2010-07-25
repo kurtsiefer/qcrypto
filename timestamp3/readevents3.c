@@ -117,6 +117,8 @@
    -u                 usb flush mode is on. If no events were detected
                       during one periode, the flush option is activated
 
+   -U devicename:     allows to draw the raw data from the named device node.
+                      If not specified, the default is /dev/ioboards/timestamp0
 
    Signals:
    SIGUSR1:   enable data acquisition. This causes the inhibit flag
@@ -238,7 +240,8 @@ int trapmode = DEFAULT_TRAPMODE;
 int skipnumber = DEFAULT_SKIPNUM; /* entries at beginning to be skiped */
 
 /* things needed for the USB device  */
-#define usbtimetag_devicename "/dev/ioboards/timestamp0"
+#define default_usbtimetag_devicename "/dev/ioboards/timestamp0"
+char usbtimetag_devicename[200]= default_usbtimetag_devicename; 
 
 /* translation to USB uoperation: more compact patterns */
 
@@ -308,6 +311,7 @@ char *errormessage[] = {
   "negative number of elements to skip.",
   "marking option out of range (0, 1 or 2)",
   "wrong skew format. needs -d v1,v2,v3,v4",
+  "Cannot parse device name", /* 15 */
 
 };
 int emsg(int code) {
@@ -677,7 +681,7 @@ int main(int argc, char *argv[]) {
     /* --------parsing arguments ---------------------------------- */
     
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "t:q:rRAa:v:s:c:j:p:FiexS:m:d:D:u")) != EOF) {
+    while ((opt=getopt(argc, argv, "t:q:rRAa:v:s:c:j:p:FiexS:m:d:D:uU:")) != EOF) {
 	switch(opt) {
 	    case 'v': /* set verbosity level */
 		sscanf(optarg,"%d",&verbosity_level);
@@ -765,7 +769,11 @@ int main(int argc, char *argv[]) {
 	    case 'u': /* switch on USB flushmode */
 		USBflushoption=1;
 		break;
-		
+	    case 'U': /* specify alternate device name */
+	      if (1!=sscanf(optarg,"199%s",usbtimetag_devicename)) 
+		return -emsg(15);
+	        usbtimetag_devicename[199]=0;
+		break;
 	    default:
 		fprintf(stderr,"usage not correct. see source code.\n");
 		return -emsg(0);
