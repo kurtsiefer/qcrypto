@@ -772,7 +772,7 @@ static struct usb_class_driver timestampclass = {
 
 
 /* initialisation of the driver: getting resources etc. */
-static int __init usbdev_init_one(struct usb_interface *intf, const struct usb_device_id *id ) {
+static int usbdev_init_one(struct usb_interface *intf, const struct usb_device_id *id ) {
     int iidx; /* index of different interfaces */
     struct usb_host_interface *setting; /* pointer to one alt setting */
     struct cardinfo *cp; /* pointer to this card */
@@ -859,7 +859,7 @@ static int __init usbdev_init_one(struct usb_interface *intf, const struct usb_d
     return -EBUSY;
 }
 
-static void __exit usbdev_remove_one(struct usb_interface *interface) {
+static void usbdev_remove_one(struct usb_interface *interface) {
     struct cardinfo *cp=NULL; /* to retreive card data */
     /* do the open race condition protection later on, perhaps with a
        semaphore */
@@ -922,7 +922,6 @@ static struct usb_driver usbdev_driver = {
     .id_table =  usbdev_tbl,
     .probe =     usbdev_init_one,
     .disconnect =    usbdev_remove_one,
-    .id_table = usbdev_tbl,
 };
 
 static void  __exit usbdev_clean(void) {
