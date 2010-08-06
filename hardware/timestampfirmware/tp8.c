@@ -362,18 +362,18 @@ static void isrUsb(void) interrupt 8 using 3  {/* critical */
 
 /***********************************************************************/
 /* EP0 service routines */
-static code char xuxu[]={0 };  /* This stuff seems to be needed to keep the 
+static code char xuxu[]={0,0};  /* This stuff seems to be needed to keep the 
 				 following table word-aligned */
 static code char Descriptors[] = { /* only a full speed device */
     0x12, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0x40, // device, usb2.0,..
-    0xb4, 0x04, 0x34, 0x12, 0x01, 0x01,  // cypress, dev 1234, rel 1.1
+    0xb4, 0x04, 0x34, 0x12, 0x01, 0x02,  // cypress, dev 1234, rel 2.1
     0x00, 0x00, 0x00, 0x01, // no indx strings, 1 configuration
 
     0x0a, 0x06, 0x00, 0x02, 0xff, 0xff, 0xff, // device qualifier
     0x40, 0x01, 0x00,  //64 bytes pkts, 1 config
 
     0x09, 0x02, 0x30, 0x00, 0x01, // defaut config descriptor (len: 41 bytes)
-    0x01, 0x00, 0x00, 0x0a,  // config #1, no buspower, 20mA
+    0x01, 0x00, 0xc0, 0x00,  // config #1, no buspower, 0mA
 
     0x09, 0x04, 0x00, 0x00, 0x00, // interface0, alt setting 0, #EP over 0
     0xff, 0xff, 0xff, 0x00, // no strings
@@ -394,14 +394,14 @@ static code char xuxu2[]= {0};
 static code char Descriptors2[] = { /* table for high speed operation */
 
     0x12, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0x40, // device, usb2.0,..
-    0xb4, 0x04, 0x34, 0x12, 0x01, 0x01,  // cypress, dev 1234, rel 1.1
+    0xb4, 0x04, 0x34, 0x12, 0x01, 0x02,  // cypress, dev 1234, rel 2.1
     0x01, 0x02, 0x03, 0x01, // some strings, 1 configuration
 
     0x0a, 0x06, 0x00, 0x02, 0xff, 0xff, 0xff, // device qualifier
     0x40, 0x01, 0x00,  //64 bytes pkts, 1 config
 
     0x09, 0x02, 0x30, 0x00, 0x01, // defaut config descriptor (len: 34 bytes)
-    0x01, 0x00, 0x00, 0x0a,  // config #1, no buspower, 20mA
+    0x01, 0x00, 0xc0, 0x00,  // config #1, no buspower, 0mA
 
     0x09, 0x04, 0x00, 0x00, 0x00, // interface0, alt setting 0, #EP over 0
     0xff, 0xff, 0xff, 0x00, // no strings
@@ -413,43 +413,39 @@ static code char Descriptors2[] = { /* table for high speed operation */
     0x07, 0x05, 0x81, 0x02, 0x00, 0x02, 0x00, // EP1in, bulk, 512 byte, no poll
     0x07, 0x05, 0x82, 0x02, 0x00, 0x02, 0x00, // EP2in, bulk, 512 byte, no poll
 
-    0x08, 0x03, 'l',0, 'g',0, 'u',0, // dummy but read??
-    0x3e, 0x03, 'C',0, 'e',0, 'n',0, 't',0, 'r',0, 'e',0, ' ',0,
+    0x04, 0x03, 'l',0,  // dummy but read??
+    0x40, 0x03, 'C',0, 'e',0, 'n',0, 't',0, 'r',0, 'e',0, ' ',0,
                 'f',0, 'o',0, 'r',0, ' ',0, 'Q',0, 'u',0, 'a',0,
                 'n',0, 't',0, 'u',0, 'm',0, ' ',0, 'T',0, 'e',0,
                 'c',0, 'h',0, 'n',0, 'o',0, 'l',0, 'o',0, 'g',0,
                 'i',0, 'e',0, 's',0, // Manufacturer
 
-    0x3e, 0x03, 'T',0, 'i',0, 'm',0, 'e',0, 's',0, 't',0, 'a',0, 'm',0, 'p',0,
+    0x4c, 0x03, 'T',0, 'i',0, 'm',0, 'e',0, 's',0, 't',0, 'a',0, 'm',0, 'p',0,
                 ' ',0, 'C',0, 'a',0, 'r',0, 'd',0, ' ',0, 'R',0, 'e',0, 'v',0, 
                 ' ',0, '2',0, ' ',0, '/',0, ' ',0, '4',0, 'k',0, ' ',0, 'F',0,
-                'I',0, 'F',0, 'O',0,
-    0x1c, 0x03, 'S',0, 'e',0, 'r',0, 'i',0, 'a',0,
-                'l',0, ' ',0, 'N',0, 'o',0, '.',0, ' ',0, 'x',0,
-                'x',0, //Serial number
+                'I',0, 'F',0, 'O',0, ' ',0, '(',0, '3',0, '.',0, '3',0, 'V',0,
+                ')',0, 
+    0x06, 0x03, 'x',0, 'x',0, //Serial number
 
     0x00 // termination of descriptor list
 
-    
-     //to keep stuff word-aligned
-
 };
-
 
 static void ctrlGetStatus() {
     unsigned char a;
-    SUDPTRCTL=0; /* simple send */
+    SUDPTRCTL=1; /* simple send...just don't use SUDPTRL */
+    EP0BCH = 0x00; EP0BUF[1] = 0x00; /* same for all requests */
     switch (SETUPDAT[0]) { /* bmRequest */
 	case 0x80: // IN, Device (Remote Wakeup and Self Powered Bit)
 	    EP0BUF[0] = 0x01; /* no Remote Wakeup, Self-powerd Device */
-	    EP0BUF[1] = 0x00;
-            EP0BCL    = 0x02; EP0BCL    = 0x00; /* 2 bytes */
+	    EP0BCL    = 0x02; /* 2 bytes, triggers transfer */
 	    break;
-	case 0x81: // IN, Get Statu/Interface
+
+	case 0x81: // IN, Get Status/Interface
 	    EP0BUF[0] = 0x00;
-	    EP0BUF[1] = 0x00; /* according to USB spec */
-            EP0BCL    = 0x02; EP0BCL    = 0x00; /* 2 bytes */
+	    EP0BCL    = 0x02; /* 2 bytes */
 	    break;
+
 	case 0x82: // IN, Endpoint (Stall Bits)
 	    switch (SETUPDAT[4] & 0xf) { /* extract number */
 		case 0: a=EP0CS; break;
@@ -461,8 +457,7 @@ static void ctrlGetStatus() {
 		default: a=1; break; /* or better Stall? */
 	    }
 	    EP0BUF[0] = a & 1; /* return stall bit or 1 in case of err */
-	    EP0BUF[1] = 0x00;
-            EP0BCL    = 0x02; EP0BCL    = 0x00; /* 2 bytes */
+	    EP0BCL    = 0x02; /* 2 bytes */
 	    break;
 	default:  /* STALL indicating Request Error */
 	    EP0CS = bmEPSTALL; 
@@ -515,23 +510,27 @@ static void ctrlGetDescriptor() {
     char seen = 0; /* have seen a string */
     static code char *current_DP;
     current_DP = (USBCS & bmHSM)? Descriptors2:Descriptors; 
+    /* try to make other speed config */
+    if (key==7) {
+      current_DP = (USBCS & bmHSM)? Descriptors:Descriptors2;
+      key=2; /* go into 'retrieve configuration' state */
+    }
     SUDPTRCTL = bmSDPAUTO; /* allow for automatic device reply */
     for (; current_DP[0]; current_DP += current_DP[0])
-	if ((current_DP[1] == key) && (count++ == index)) {
-	    SUDPTRH = (char)(((unsigned int)current_DP)>>8)&0xff;
-	    SUDPTRL = (char)( (unsigned int)current_DP    )&0xff;
-	    seen=1;
-	}
+      if ((current_DP[1] == key) && (count++ == index)) {
+	SUDPTRH = (char)(((unsigned int)current_DP)>>8)&0xff;
+	SUDPTRL = (char)( (unsigned int)current_DP    )&0xff;
+	seen=1;
+      }
     
-  
     if (!seen) EP0CS = bmEPSTALL; /* did not find descriptor */
 }
 
 
 static void ctrlGetConfiguration() {
-  SUDPTRCTL=0; /* simple send */
+  SUDPTRCTL=1; /* simple send */
   EP0BUF[0] = configuration;
-  EP0BCL    = 0x01; EP0BCL    = 0x00; /* 1 byte */
+  EP0BCH    = 0x00; EP0BCL    = 0x01; /* 1 byte, trigger transfer */
 }
 
 static void ctrlSetConfiguration() {
@@ -544,9 +543,9 @@ static void ctrlSetConfiguration() {
 }
 
 static void ctrlGetInterface() {
+  SUDPTRCTL=1; /* simple send */
   EP0BUF[0] = altsetting;
-  SUDPTRCTL=0; /* simple send */
-  EP0BCL    = 0x01; EP0BCL    = 0x00; /* 1 byte */
+  EP0BCH = 0x00; EP0BCL = 0x01; /* 1 byte */
 }
 
 static void ctrlSetInterface() {
@@ -1050,6 +1049,7 @@ void main() {
 
     /* conduct a full FIFO reset and program the AE flag */
     //FIFOupperwatermark = 12288;  /* about 4 kbyte buffer for a 7C43683 chip*/
+    //FIFOupperwatermark = 6144;  /* this is for a 8k FIFO, e.g. IDT723673 */
     FIFOupperwatermark = 3072;  /* this is used for a smaller FIFO, 7C43643 */
     FIFOSerialProgram();
 
