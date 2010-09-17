@@ -41,9 +41,8 @@ clean:
 	rm -fr 2.6/.tmp*
 
 udev: 	driver $(loadertarget1)
-	cp $(loadertarget1) /etc/udev/rules.d/
+	sudo cp $(loadertarget1) /etc/udev/rules.d/
 
 hotplugd: driver $(loadertarget2)
-	cp $(loadertarget2) /etc/hotplug.d/usb/
-	chmod 744 /etc/hotplug.d/usb/t5.hotplug
-
+	sudo cp $(loadertarget2) /etc/hotplug.d/usb/
+	sudo chmod 744 /etc/hotplug.d/usb/t5.hotplug
