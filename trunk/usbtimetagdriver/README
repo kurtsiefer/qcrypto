@@ -39,12 +39,13 @@ Then, the hotplugging machinery needs to be installed. There are two different
 versions for this mechanism, depending on the distribution the machine runs
 on. SuSE 10.0 uses the newer udev method, which is a generalized driver
 insertion and dynamic device generation tool. SuSE 9.3 uses the somewhat older
-but seemingly more common /etc/hottplug.d mechanism. Most likely other
+but seemingly more common /etc/hotplug.d mechanism. Most likely other
 versions work as well, but these are the only ones I tested.  Explanation of
 the details see further down. 
 
-So, you first need to find out what distribution you have. Then, become
-superuser as the normal user cannot install the hotplugging rules.
+So, you first need to find out what distribution you have. Both scripts will
+ask you for a superuser password to copy the rules into the relevant
+directories.
 
 For SuSE 9.3, you install the hotplugging stuff by saying
     
@@ -53,7 +54,7 @@ For SuSE 9.3, you install the hotplugging stuff by saying
 This installs a loader script into /etc/hotplug.d/usb/ with the correct
 pathname for the device driver
 
-For SuSE 10.0, you install the hotplugging stuff with the command
+For SuSE 10.0 and above, you install the hotplugging stuff with the command
 
     make udev
 
