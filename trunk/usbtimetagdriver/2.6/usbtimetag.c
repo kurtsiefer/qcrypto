@@ -70,6 +70,7 @@
 #include <linux/dma-mapping.h>
 #include <asm/ioctl.h>
 #include <linux/mm.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/jiffies.h>  /* for irq rate servo */
 #include <linux/version.h>
@@ -677,7 +678,8 @@ static int usbdev_flat_close(struct inode *inode, struct file *filp) {
     cp->reallygone=1;
     return 0;
 }
-static int usbdev_flat_ioctl(struct inode *inode, struct file *filp, unsigned int cmd, unsigned long arg) {
+/* change in the ioctl structure to unlocked_ioctl...removed inode parameter */
+static int usbdev_flat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
     struct cardinfo *cp = (struct cardinfo *)filp->private_data;
     unsigned char data[5]; /* send stuff */
     unsigned char len=3; unsigned char chksum=0;
@@ -750,7 +752,8 @@ static int usbdev_flat_ioctl(struct inode *inode, struct file *filp, unsigned in
 static struct file_operations usbdev_simple_fops = {
     open:    usbdev_flat_open,
     release: usbdev_flat_close,
-    ioctl:   usbdev_flat_ioctl,
+    /* migration to newer ioctl definition */
+    unlocked_ioctl:   usbdev_flat_ioctl,
     mmap:    usbdev_mmap,   /* port_mmap */
 
 };
