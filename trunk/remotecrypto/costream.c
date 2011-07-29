@@ -3,8 +3,8 @@
                 initial key sifting on the high count rate side. Description
                 see below. Version as of 20070101
 
- Copyright (C) 2005-2006 Christian Kurtsiefer, National University
-                         of Singapore <christian.kurtsiefer@gmail.com>
+ Copyright (C) 2005-2007,2010,2011 Christian Kurtsiefer, National University
+                of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
  modify it under the terms of the GNU Public License as published 
@@ -36,13 +36,14 @@
                   [-I type-1 streamfile] | [-D type-1 directory]
 		  [-o type-3 streamfile] | [-f type-3 directory]
                   [-O type-4 streamfile] | [-F type-4 directory]
+                  [-b type-3 bellfile]   | [-B type-3 directory]
 		  -e startepoch [-q epochnumber]
 		  [-k] [-K]
 		  -t timediff
 		  [-w coincidence window] [-u tracking window]
 		  [-Q filterparameter for timedifference]
 		  [-r bitnumber] [-R servoconstant]
-		  [-p protsocolindex]
+		  [-p protocolindex]
 		  [-l logfile1] [-L logfile2] [-m logfile3] [-M logfile4]
 		  [-n logfile5] [-V verbosity]
 		  [-T zeroeventpolicy ]
@@ -73,6 +74,8 @@
 		    in hex. Filename is not padded at end.
    -o fname3:       same as option -O, but for type-3 files
    -f dir3:         same as option -d, but for type-3 files
+   -b bellfile:     same as option -O, but for type-3 BELL files
+   -B belldir:      same as option -d, but for type-3 BELL directories
 
    -k :             if set, type-2 streams are removed after consumption
 		    if the directory input has been chosen.
@@ -94,6 +97,10 @@
                     0: service mode, emits all bits into stream 3 locally
 		    1: standard BB84, emits only result in stream 3
 		    (2: rich bb84: emits data and base/error info in stream 3)
+		    3: deviceindep protocol with the 6det connected to
+		       the chopper side (low cnt rate)
+		    4: deviceindep proto with te 4det connected to the
+		       chopper side
    -q epochnum      defines how many epochs should be converted before the
                     program stops. When set to 0, it loops forever; this is
 		    the default.
@@ -119,7 +126,7 @@
                     between different detector combinations. If this is empty,
                     no histogram is taken or sent. For a histogram to be
                     prepred the mode of operation must be 0 (service info) to
-		    obtain the full 4x4 matrix.
+		    obtain the full 4x4 matrix (or 4x6 for proto3+4).
    -h histolen      number of epochs to be included in a histogram file.
                     default is 10.
    -S s1,s1,s3,s4   detector skew information. This option adds a detector-
@@ -176,6 +183,7 @@
    modified to get stat right before reading file...compiles feb12_06
    hopefully repaired date overflow bug in bit #63  18.10.06chk
    added detector deskew option -S for special apps 11.5.10chk
+   merged in Ekert protocol modifications from separate branch 29.7.11chk
 
 
   ToDo:
@@ -298,6 +306,7 @@ typedef struct header_4 {/* header for type-4 stream packet */
 typedef struct protocol_details_B { /* used in costream program */
     int bitsperentry3;   /* what ends up in local sifted key stream */
     int bitsperentry4;   /* any transmitted data on the way back */
+    int bitsperentry5;   /* number of bits in the test file */
     int detectorentries; /* number of detectorentries; 16 for 4 detectors;
 			    this value -1 is used as bitmask for status */
     int expected2bits;   /* expected bits from the other side. Will cause an
@@ -310,14 +319,15 @@ typedef struct protocol_details_B { /* used in costream program */
 		       The binary value of its 
 		       content is a multi-bitfield structure, where the
 		       lsbits are a resulting entry3 pattern, the next bits
-		       are the resulting stream-4 pattern and a remaining one
-		       bit is a decision bit wether the event should be
-		       ignored (0) or not (1). */
+		       are the resulting stream-4 pattern, followed by
+		       one bit for the decision wether the event should be
+		       ignored (0) or not (1), and another decision bit for
+		       classifying an event as key (0) or test (1) event. */
     void (*fill_decision)(int*); /* helper function to fill decision table. 
 				    the argument is the decision array. */
 } pd_B;
 
-#define PROTOCOL_MAXINDEX 1
+#define PROTOCOL_MAXINDEX 4
 /* helper functions for filling in the decision table */
 void FILL_DEC_PROTO0(int *t) {/* parameter is 8 bits wide , with the stream-2
 				bits in bit7..4 of p3, stream-1 bits in lsbits.
@@ -344,15 +354,55 @@ void FILL_DEC_PROTO1(int*t) {/* for standard BB84. parameter is 5 bits wide,
     int i;
     for (i=0;i<32;i++) t[i]=bbtab[i];
 }
+void FILL_DEC_PROTO3(int *t) {/* For dev-indep with 6 detectors on chopper
+				 sode. The parameter is 7 bit wide, with the
+				 stream-2 bits in bit6..4 of p3,
+				 stream-1 bits in lsbits.
+				 result is 1 bit for stream-3, 2 bits for
+				 stream-5, and 3 bits for stream-4.
+				 Ignoreevent and testbit decisions are set
+				 accordingly */
+    /* The Bell file contains rrll bits, where rr and ll are indices of
+       remote and local detectors, ranging from 0 to 3.
+       The stream-4 handshake is either 0-3 for the local det index, or 4
+       for a key event. The keeping pattern is 0x80, the testpattern 0x100
+    */
+    int interestingtab[36]= /* table with addr,value for legal entries */
+	{0x41,0x040,  0x44,0x041, /* key combination events */
+	 0x01,0x100,  0x02,0x111,  0x04,0x122,  0x08,0x133, 
+	 0x11,0x104,  0x12,0x115,  0x14,0x126,  0x18,0x137, 
+	 0x21,0x108,  0x22,0x119,  0x24,0x12a,  0x28,0x13b, 
+	 0x31,0x10c,  0x32,0x11d,  0x34,0x12e,  0x38,0x13f
+	};
+
+    int i;
+    for (i=0;i<256;i++) t[i]=0; /* default is illegal pattern */
+    for (i=0;i<18;i++) t[interestingtab[i*2]]=interestingtab[i*2+1] | 0x80;
+}
+void FILL_DEC_PROTO4(int*t) {/* For the devindep protocol, with  4 detectors 
+				on the chopper side. The parameter is 5 bits
+				wide, bits0..4 from stream 1, bit 4 from
+				stream 2. Result is one bit for stream-3 key 
+				data, 2 bits for incomplete Bell tests,
+				and 3 bits for stream-4 data (test/key).
+				The stream-4 events are as in proto3, the
+				keeping pattern is 0x20, test pattern 0x40. */
+    int i;
+    for (i=0;i<32;i++) t[i]=0; /* illegal by default */
+    for (i=0;i<4;i++) 
+	t[0x10+(1<<i)]=0x40 + (i*5) + 0x20; /* test, s-4 and s-5 same */
+    t[0x13]=0x10+0x20; t[0x16]=0x11+0x20; /* key bits */
+}
+
 struct protocol_details_B proto_table[] = {
     {/* protocol 0: all bits go everywhere */
-	8,4,16,4, /* 16 entries in the tables p3_1 and p3_2 */
+        8,4,0,16,4, /* 16 entries in the tables p3_1 and p3_2 */
 	256, /* size of combined pattern */
 	&FILL_DEC_PROTO0,
     },
     { /* protocol 1: standard BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
 	 HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 */
-	1,0,16,1,
+        1,0,0,16,1,
 	32, /* size of combined pattern */
 	&FILL_DEC_PROTO1
     },
@@ -360,6 +410,26 @@ struct protocol_details_B proto_table[] = {
 	HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 
 	if an illegal pattern was detected, a pair info pattern (2) or a
 	multi/no coincidence pattern (3) is recorded*/
+    /* for the moment, this is just a copy of protocol 0 */
+    {/* protocol 2: all bits go everywhere */
+	8,4,0,16,4, /* 16 entries in the tables p3_1 and p3_2 */
+	256, /* size of combined pattern */
+	&FILL_DEC_PROTO0,
+    },
+    {/* protocol 3: deviceindependent - chopper on 6det side.
+	chopper transmits 1-out-of-6 info, costream returns
+	1-out-of-5 to first side. */
+	1,3,4,16,3,/* one keybit, 3 ack bits, 4 bellbits, 16??, 2 t2bits */
+	128, /* size of combined pattern */
+	&FILL_DEC_PROTO3,
+    },
+    {/* protocol 4: all bits go everywhere */
+	1,3,2,16,1, /* one keybit, 3 ack bits, 2 bellbits, 16??, 1 t2bit */
+	32, /* size of combined pattern */
+	&FILL_DEC_PROTO4,
+    },
+
+
     /* helper functions for filling in the decision table */
 };
 
@@ -367,12 +437,13 @@ struct protocol_details_B proto_table[] = {
 
 
 /* histogram stuff. For preparing a histogram of time differences between
-   corresponding detector events. An array of 17 entries contains events
-   for all valid detector combinations. the 17th entry corresponds to
+   corresponding detector events. An array of 17 (25) entries contains events
+   for all valid detector combinations. the 25th entry corresponds to
    detector events which do not correspond to pairs.
+   old: 17th column, but that was never used so I changed it to 25
 */
 
-unsigned int histo[17][DEFAULT_HISTODEPTH]; /* array for counting */
+unsigned int histo[25][DEFAULT_HISTODEPTH]; /* array for counting */
 int histos_to_go;
 int histolen = DEFAULT_HISTOLEN; /* numbers of histograms */
 char histologname[FNAMELENGTH]; /* log file name base */
@@ -382,15 +453,24 @@ int histidx[256]; /* histogram index */
 /* clear histogram */
 void clear_histo(void) {
     int i,j;
-    for (i=0;i<17;i++) for (j=0;j<DEFAULT_HISTODEPTH;j++) histo[i][j]=0;
+    for (i=0;i<25;i++) for (j=0;j<DEFAULT_HISTODEPTH;j++) histo[i][j]=0;
     histos_to_go = histolen;
     fprintf(debuglog,"histolen: %d\n",histolen);
 }
+
 /* initialize histogram index and clear field */
 void init_histo(void){
-    int i;
-    for (i=0;i<256;i++) histidx[i]=16; /* most of them are illegal */
-    for (i=0;i<16;i++) histidx[(16<<((i>>2)&3))|(1<<(i&3))]=i; /* legal ones */
+    int i,x,y;
+    for (i=0;i<256;i++) histidx[i]=24; /* most of them are illegal */
+    for (i=0;i<16;i++) histidx[(16<<((i>>2)&3))|(1<<(i&3))]=i; /* legal 4x4 */
+    /* for calibration: mix 2x4 detectors from all combinations. This is not
+       entirely correct, but adds some wrong events onto the legal ones, but
+       should be good enough for calibration.... */
+    for (i=16;i<24;i++){
+	x=(i&4)>>2;y=i&3;
+	histidx[(0x30<<x)+(0x01<<y)]=i; /* remote has 6 detectors */
+	histidx[(0x03<<x)+(0x10<<y)]=i; /* local has 6 detectors */
+    }
     clear_histo();
 }
 
@@ -417,10 +497,10 @@ int emit_histo(unsigned int epoch) {
 	if (!(hh=fopen(hl2,"w"))) {
 	    return 68; /* cannot open histo file */
 	}
- fprintf(hh,"# time difference histogramming output. Start epoch: %08x, contains %d epochs.\n# The timing info in column 1 is in multiples of 125ps. The\n# next 16 columns contain legal events, column 18 the number of illegal events.\n",epoch-histolen,histolen);fflush(hh);
+ fprintf(hh,"# time difference histogramming output. Start epoch: %08x, contains %d epochs.\n# The timing info in column 1 is in multiples of 125ps. The\n# next 24 columns contain legal events, column 26 the number of illegal events.\n",epoch-histolen,histolen);fflush(hh);
 	for (j=0;j<DEFAULT_HISTODEPTH;j++) {
 	    fprintf(hh,"%d ",j-DEFAULT_HISTODEPTH/2);
-	    for (i=0;i<17;i++) fprintf(hh,"%d%c",histo[i][j],i<16?' ':'\n');
+	    for (i=0;i<25;i++) fprintf(hh,"%d%c",histo[i][j],i<24?' ':'\n');
 	}
 	fclose(hh);
     }
@@ -501,9 +581,17 @@ char *errormessage[] = {
   "error parsing accidental measurement window distance",
   "Error opening histogram file",
   "error reading histogram length or value not >0",
-  "error reading histogram bas ename", /* 70 */
+  "error reading histogram base name", /* 70 */
   "cannot stat stream 2 handle",
-  "wrong skew format. needs -S v1,v2,v3,v4",
+  "Error reading file/directory name for type-3 Bell packets.",
+  "duplicate definition of type-5 file.",
+  "Cannot malloc stream-5 buffer (Bell measurement)",
+  "no target mode defined for type-5 packets.",   /* 75 */
+  "error opening notification stream 5",
+  "error opening target stream 5",
+  "cannot write type-5 header",
+  "cannot write type-5 data",  
+  "wrong skew format. needs -S v1,v2,v3,v4", /* 80 */
 };
 
 int emsg(int code) {
@@ -512,9 +600,10 @@ int emsg(int code) {
 };
 
 /* tables etc. */
-int openmode[5] = {0,O_RDONLY,O_RDONLY, /* modes for stream 1 and 2 */
+int openmode[6] = {0,O_RDONLY,O_RDONLY, /* modes for stream 1 and 2 */
 		   O_WRONLY | O_TRUNC | O_CREAT, /* mode 3 */
-		   O_WRONLY | O_TRUNC | O_CREAT }; /* mode 4 */
+		   O_WRONLY | O_TRUNC | O_CREAT, /* mode 4 */
+		   O_WRONLY | O_TRUNC | O_CREAT, }; /* mode 5 */
 
 #define FILE_PERMISSIONS 0644  /* for all output files */
 
@@ -522,32 +611,35 @@ int openmode[5] = {0,O_RDONLY,O_RDONLY, /* modes for stream 1 and 2 */
 /* global variables for IO handling */
 int verbosity_level = DEFAULT_VERBOSITY;
 int zeropolicy = DEFAULT_ZEROPOLICY; /* what to do on no events */
-char fname[5][FNAMELENGTH]={"","","","",""}; /* stream files */
+char fname[6][FNAMELENGTH]={"","","","","",""}; /* stream files */
 char logfname[5][FNAMELENGTH]={"","","","",""}; /* all different logfiles */
 FILE* loghandle[5]; /* for log files */
 struct header_1 head1; /* infile header */
 struct header_2 head2; /* infile header */
-struct header_3 head3; /* infile header */
-struct header_4 head4; /* infile header */
+struct header_3 head3; /* raw key file header */
+struct header_4 head4; /* confirmation file header */
+struct header_3 head5; /* Bell file output */
 char ffnam[FNAMELENGTH+10], ffn2[FNAMELENGTH+10];
-int typemode[5]={0,0,0,0,0}; /* no mode defined. other tpyes:
-				1: single file, 2: directory save, ... */
+int typemode[6]={0,0,0,0,0,0}; /* no mode defined. other types:
+		 		  1: single file, 2: directory save, ... */
 int killmode[3] = {0,DEFAULT_KILLMODE1,
 		   DEFAULT_KILLMODE2 }; /* if !=1, delete infile after use */
-int handle[5]; /* global handles for packet streams */
+int handle[6]; /* global handles for packet streams */
 
 unsigned int ecnt1, ecnt2,ecnt1initial; /* event counter for input streams */
-unsigned int sendword3,sendword4; /* for writing to stream 3 and 4 */
-int resbits3,index3,index4,type3datawidth,type4datawidth;
+unsigned int sendword3,sendword4,sendword5; /* for writing to stream 3 to 5 */
+int index3,index4,index5,type3datawidth,type4datawidth,type5datawidth;
 int type4bitwidth = DEFAULT_STREAM4BITWIDTH; /* for packer */ 
 int type4bitwidth_long; /* for servo, value times 256  */
 int filterconst_stream4 = DEFAULT_FILTERCONST_4; /* for stream4 compression */
-int bitstosend4,resbits4;
+int bitstosend4,resbits3,resbits4,resbits5;
 unsigned int tdiff4_bitmask;
-unsigned int *outbuf3, *outbuf4;
+unsigned int *outbuf3, *outbuf4, *outbuf5;
 unsigned int idiff4_bitmask;  /* detecting exception words */
 int thisepoch_converted_entries; /* coincidences with basematch */
-int thisepoch_keyevents; /* counts entries in the target files */
+int thisepoch_siftevents; /* counts total entries in the target4 file */
+int thisepoch_testevents; /* counts number of testevents. used for
+			     distinguishing test- and keyevents */
 int uepoch; /* which type of stream file from stream 2 */
 long int ft; /* for monitoring */
 unsigned int accidentals,truecoincies;
@@ -563,7 +655,7 @@ unsigned int overlay_correction[16]= {0,PL1,MI2,MI1, MI1,0,PL1,MI2,
 
 
 
-/* opening routine to target files stream 3 and 4 */
+/* opening routine to target files stream 3 and 4 and (optionally) 5 */
 int open_epoch(unsigned int ep) { /* parameter is new epoch */
   
     /* populate headers preliminary */
@@ -579,6 +671,12 @@ int open_epoch(unsigned int ep) { /* parameter is new epoch */
     /* initialize output buffers and temp storage*/
     index3=0;sendword3=0;resbits3=32;
     index4=0;sendword4=0;resbits4=32;
+
+    /* optionally open stream 5 (Bell measurement results) */
+    head5.tag = uepoch?TYPE_3_TAG_U:TYPE_3_TAG; head5.length = 0;
+    head5.epoc = ep; head5.bitsperentry = type5datawidth;
+    index5=0;sendword5=0;resbits5=32;
+
     return 0;
 }
 
@@ -590,7 +688,7 @@ int close_epoch() {
     unsigned int t4a;
     int te = head3.epoc; /* holds this epoch */
     
-    if (thisepoch_keyevents || zeropolicy) { /* emit stream-4 files */
+    if (thisepoch_siftevents || zeropolicy) { /* emit stream-4 files */
 	/* finish stream 4 entries */
 	t4a = TYPE_4_ENDWORD<<type4datawidth;
 	
@@ -612,7 +710,7 @@ int close_epoch() {
 	
 	/* write out last word */
 	if (resbits4<32) outbuf4[index4++]=sendword4;
-	head4.length = thisepoch_keyevents; /* update header */
+	head4.length = thisepoch_siftevents; /* update header */
 	
 	/* eventually open stream 4 */
 	switch (typemode[4]) {
@@ -639,9 +737,9 @@ int close_epoch() {
 	}
 
 	/* servo loop for optimal compression parameter of stream 4 */
-	if (thisepoch_keyevents) {
+	if (thisepoch_siftevents) {
 	    average_distance = 
-		ecnt2 / thisepoch_keyevents;
+		ecnt2 / thisepoch_siftevents;
 	    if (average_distance<8) average_distance=8;
 	    optimal_width= 
 		(int) ((log((float)average_distance)/log(2.)+2.2117)*16.);
@@ -669,10 +767,10 @@ int close_epoch() {
     /* keep this updated */
     bitstosend4=type4bitwidth+type4datawidth; /* has to be <32 */
 
-    if (thisepoch_keyevents || (zeropolicy>1)) { /* emit stream-3 */
+    if (thisepoch_siftevents || (zeropolicy>1)) { /* emit stream-3 and -5 */
 	/* flush stream 3, write the length and close it */
 	if (resbits3<32) outbuf3[index3++]=sendword3;
-	head3.length = thisepoch_keyevents;
+	head3.length = thisepoch_siftevents-thisepoch_testevents;
 
 	/* eventually open stream 3 */
 	switch (typemode[3]) {
@@ -697,6 +795,39 @@ int close_epoch() {
 	    case 2:
 		close(handle[3]);
 	}
+
+	/* eventually do stream 5 */
+	if (typemode[5]) { /* only generate this if necessary */
+	 	if (resbits5<32) outbuf5[index5++]=sendword5;
+		head5.length = thisepoch_testevents;
+
+		/* eventually open stream 5 */
+		switch (typemode[5]) {
+		    case 2: /* file in directory */
+			strncpy(ffnam_c, fname[5], FNAMELENGTH);
+			atohex(&ffnam_c[strlen(ffnam_c)],head5.epoc);
+			handle[5]=open(ffnam_c,openmode[5],FILE_PERMISSIONS);
+			if(-1==handle[5]) return 77;
+			break;
+		}
+	
+		/* write header 5 */
+		retval= write(handle[5],&head5,sizeof(struct header_3));
+		if (retval!=sizeof(struct header_3)) return 78; /* writ err */
+		i=index5*sizeof(unsigned int);
+		retval=write(handle[5],outbuf5,i);
+		if (retval!=i) return 79; /* write error buffer */
+		
+		
+		/* eventually close stream 5 */
+		switch (typemode[5]) {
+		    case 2:
+			close(handle[5]);
+			break;
+		}
+		
+	}
+	
 	/* notify stream 3 */
 	if (logfname[3][0]) fprintf(loghandle[3],"%08x\n",te);
 	if (flushmode>1) fflush(loghandle[3]);
@@ -709,29 +840,29 @@ int close_epoch() {
 		break;
 	    case 1: /* log length w/o text and epoch */
 		fprintf(loghandle[0],"%08x\t%d\n",
-			te,thisepoch_keyevents);
+			te,thisepoch_siftevents);
 		break;
 	    case 2: /* log length w text and epoch */
 		fprintf(loghandle[0],
 			"epoch: %08x\t survived raw entries: %d\n",
-			te,thisepoch_keyevents);
+			te,thisepoch_siftevents);
 		break;
 	    case 3: /* log length w text and epoch and setbits */
 		fprintf(loghandle[0],
 			"epoch: %08x, stream2 evnts: %d, stream4 evnts: %d, new bitwidth4: %d\n",
-			te, ecnt2, thisepoch_keyevents,type4bitwidth);
+			te, ecnt2, thisepoch_siftevents,type4bitwidth);
 		break;
 	    case 4: /* log epoch, inlength, outlength, bitwidth for output,
 		       servoed time difference, est accidentals, accepted
 		       coincidences w text */
 		fprintf(loghandle[0],
 			"epoch: %08x, 2-evnts: %d, 4-evnts: %d, new bw4: %d, ft: %li, acc: %i, true: %i, 1-events: %d\n",
-			te, ecnt2, thisepoch_keyevents,type4bitwidth,
+			te, ecnt2, thisepoch_siftevents,type4bitwidth,
 			ft,accidentals,truecoincies,ecnt1initial);
 		break;
 	    case 5: /* log as in verbo mode 4 but without text */
 		fprintf(loghandle[0], "%08x\t%d\t%d\t%d\t%li\t%i\t%i\t%i\n",
-			te, ecnt2, thisepoch_keyevents,type4bitwidth,ft,
+			te, ecnt2, thisepoch_siftevents,type4bitwidth,ft,
 			accidentals,truecoincies,ecnt1initial);
 		break;
 
@@ -839,7 +970,7 @@ int get_stream_2(void *buffer, int handle, int maxsize,
 	}
 	if (!loops)  { /* failed to read all bytes */
 	    fprintf(stderr, "cannot get all bytes; got %d ",bytelen);
-	    return 46; /*S incomplete read */
+	    return 46; /* incomplete read */
 	}
     } else { /* need to hope that I get correct length in first read */
 	retval=read(handle,buffer,maxsize);
@@ -867,7 +998,10 @@ int get_stream_2(void *buffer, int handle, int maxsize,
 	    return 48;}
     }
     /* protocol bit match? */
-    if (h->basebits != expected2bits) return 63;
+    if (h->basebits != expected2bits) {
+	fprintf(stderr,"base: %d, expected: %d\n",h->basebits, expected2bits);
+	return 63;
+    }
     *realsize = bytelen; /* read in bytes */
     *head=h[0];
     return 0;
@@ -916,8 +1050,10 @@ int main (int argc, char *argv[]) {
 
     int *decisionmatrix; /* contains the protocol decision at this level */
     int decisionindexmask,keepthatpairmask,stream4datashift;
-    int stream4datamask, stream3datamask;
-    int stream3data, stream4data;
+    int longerpattern;  /* the longer of stream 3 or stream 5 bitlengths */
+    int testeventmask;  /* to mask out the decision test/key */
+    int stream4datamask, stream3datamask, stream5datamask;
+    int stream3data, stream4data, stream5data;
 
     unsigned int oldindex4=0; /* for saving index */
     unsigned int indexdiff4,t4,t4a; /* temporary variable for timedifference */
@@ -936,7 +1072,7 @@ int main (int argc, char *argv[]) {
 	    filterconst_stream4,type4bitwidth);
 
 
-    while ((opt=getopt(argc, argv, "V:F:f:d:D:O:o:i:I:kKe:q:Q:M:m:L:l:n:t:w:u:r:R:p:T:G:a:h:H:S:")) != EOF) {
+    while ((opt=getopt(argc, argv, "V:F:f:d:D:O:o:i:I:kKe:q:Q:M:m:L:l:n:t:w:u:r:R:p:T:G:a:h:H:S:b:B:")) != EOF) {
 	i=0; /* for setinf names/modes commonly */
 	/* fprintf(debuglog,"got option >>%c<<, filter: %d, width: %d\n",
 	   opt,filterconst_stream4,type4bitwidth); */
@@ -960,6 +1096,14 @@ int main (int argc, char *argv[]) {
 		fname[j][FNAMELENGTH-1]=0;   /* security termination */
 		if (typemode[j]) return -emsg(5+j); /* already defined mode */
 		typemode[j]=(i&4?2:1);
+		break;
+	    case 'B': i++;/* stream3 directory for BELL mesaurement */
+	    case 'b': /* stream3 file for BELL mesaurement */
+		j=5; /* stream number */
+		if (1!=sscanf(optarg,FNAMFORMAT,fname[j])) return -emsg(72);
+		fname[j][FNAMELENGTH-1]=0;   /* security termination */
+		if (typemode[j]) return -emsg(73); /* already defined mode */
+		typemode[j]=((i&1)?2:1); /* dirctory/file distinguisher */ 
 		break;
 	    case 'k': /* kill mode stream 2 */
 		killmode[2]=1;
@@ -1022,7 +1166,7 @@ int main (int argc, char *argv[]) {
 	    case 'a': /* accidental coincidence distance */
 		if (1!=sscanf(optarg,"%i",&accidental_dist)) return -emsg(67);
 		break;
-	    case 'h': /* get num of epochs per hsitogram */
+	    case 'h': /* get num of epochs per histogram */
 		if (1!=sscanf(optarg,"%i",&histolen)) return -emsg(69);
 		if (histolen<1) return -emsg(69);
 		fprintf(debuglog,"entered histolen: %d\n",histolen);
@@ -1033,7 +1177,7 @@ int main (int argc, char *argv[]) {
 		break;
 	    case 'S': /* detector skew correction */
 	        if (4!=sscanf(optarg,"%d,%d,%d,%d", &dskew[0],&dskew[1],
-			      &dskew[2],&dskew[3])) return -emsg(72);
+			      &dskew[2],&dskew[3])) return -emsg(80);
 		skewcorrectmode =1;
 		break;
 
@@ -1082,23 +1226,38 @@ int main (int argc, char *argv[]) {
     if (!(buffer2=(char*)malloc(RAW2_SIZE))) return -emsg(23);
     if (!(outbuf3=(unsigned int *)malloc(RAW3_SIZE))) return -emsg(24);
     if (!(outbuf4=(unsigned int *)malloc(RAW4_SIZE))) return -emsg(25);
+    if (!(outbuf5=(unsigned int *)malloc(RAW3_SIZE))) return -emsg(74);
+
     /* for processing stream 1 */
-    pointer1=(struct rawevent *)(buffer1+sizeof(struct header_1)); 
+    pointer1=(struct rawevent *)(buffer1+sizeof(struct header_1));
 
     /* protocol preparation */
     i=proto_table[proto_index].decsize; /* size of array */
     if (!(decisionmatrix=(int*)malloc(i*sizeof(int)))) return -emsg(52);
-    proto_table[proto_index].fill_decision(decisionmatrix); 
-    keepthatpairmask= (1<<(proto_table[proto_index].bitsperentry3+
-			    proto_table[proto_index].bitsperentry4));
+    proto_table[proto_index].fill_decision(decisionmatrix);
+
+    /* find longer of -3 or -5 pattern */
+    longerpattern = proto_table[proto_index].bitsperentry3;
+    if (longerpattern <	proto_table[proto_index].bitsperentry5) 
+	longerpattern = proto_table[proto_index].bitsperentry5;
+
+    keepthatpairmask= (1<<(longerpattern +
+			   proto_table[proto_index].bitsperentry4));
+    testeventmask = keepthatpairmask <<1; /* for Bell tests */
+
     decisionindexmask=(1<<(proto_table[proto_index].expected2bits+4))-1;
+
     expected2bits=proto_table[proto_index].expected2bits; /* consistency tst */
     /* what detectors to expect */
     raw_patternmask=proto_table[proto_index].detectorentries-1;
 
     stream3datamask=(1<<proto_table[proto_index].bitsperentry3)-1;
+    stream5datamask=(1<<proto_table[proto_index].bitsperentry5)-1;
+
     type3datawidth=proto_table[proto_index].bitsperentry3;
-    stream4datashift=proto_table[proto_index].bitsperentry3;
+    type5datawidth=proto_table[proto_index].bitsperentry5;
+
+    stream4datashift=longerpattern;
     stream4datamask=((1<<proto_table[proto_index].bitsperentry4)-1)<<
 	stream4datashift;
     type4datawidth =proto_table[proto_index].bitsperentry4;
@@ -1113,12 +1272,17 @@ int main (int argc, char *argv[]) {
 	} else if (!i) {loghandle[i] = stdout;} /* use stdout for standard */
     }
     /* evtl. open stream files */
-    for (i=1;i<5;i++) {
+    for (i=1;i<6;i++) { /* allow for non-definition of stream-5 mode */
 	switch (typemode[i]) {
 	    case 0: /* no mode defined */
-		return -emsg(34+i); /* no mode defined */
+		if (i<5) return -emsg(34+i); /* need this file but no mode */
+		/* now we are at stream 5 */
+		if (proto_index==3 || proto_index==4) {
+		    return -emsg(75);
+		}
+		break;
 	    case 1: /* single file */
-		handle[i]=open(logfname[i],openmode[i],FILE_PERMISSIONS);
+		handle[i]=open(fname[i],openmode[i],FILE_PERMISSIONS);
 		if (-1==handle[i]) return -emsg(30+i);
 	}
     }
@@ -1133,7 +1297,8 @@ int main (int argc, char *argv[]) {
     floattime=0; /* coincidence tracker hires state variable */
     firstrun=1; /* to read in stream-2 without saving streams 3,4 */
     thisepoch_converted_entries=0;
-    thisepoch_keyevents=0;  /* what ends up in the target files */
+    thisepoch_siftevents=0;  /* what ends up in the target files */
+    thisepoch_testevents=0;  /* no testevents so far */
     accidentals=0;truecoincies=0;
 
     /* initialize to avoid 38 yr overrun */
@@ -1287,7 +1452,9 @@ int main (int argc, char *argv[]) {
 		
 		accidentals=0;truecoincies=0;
 		thisepoch_converted_entries=0;
-		thisepoch_keyevents=0;
+		thisepoch_siftevents=0;
+		thisepoch_testevents=0;
+
 		epoch2++; /* prepare for next read */
 	    }
 	    /* extract one event */
@@ -1340,22 +1507,43 @@ int main (int argc, char *argv[]) {
 	    d=decisionmatrix[(pattern1 | (pattern2<<4))&  decisionindexmask];
 	    /* printf("patt1: %d, patt2: %d, d:%d\n",pattern1,pattern2,d); */
 	    if (d & keepthatpairmask) {
-		/* add to stream 3 */
-		stream3data = d & stream3datamask;
-		/* printf("stream3data: %x\n",stream3data); */
-		if (resbits3>=type3datawidth) {
-		    sendword3 |= (stream3data << (resbits3-type3datawidth));
-		    resbits3 = resbits3-type3datawidth;
-		    if (resbits3==0) { 
-			outbuf3[index3++]=sendword3;
-			sendword3=0;resbits3=32;
+		if (d & testeventmask) { /* save as bell test event */
+		    /* add to stream 5 */
+		    stream5data = d & stream5datamask;
+		    /* printf("stream5data: %x\n",stream5data); */
+		    if (resbits5>=type5datawidth) {
+			sendword5 |= (stream5data << (resbits5-type5datawidth));
+			resbits5 = resbits5-type5datawidth;
+			if (resbits5==0) { 
+			    outbuf5[index5++]=sendword5;
+			    sendword5=0;resbits5=32;
+			}
+		    } else {
+			resbits5=type5datawidth-resbits5;
+			sendword5 |= (stream5data >> resbits5);
+			outbuf5[index5++]=sendword5;
+			resbits5=32-resbits5;
+			sendword5=stream5data << resbits5;
 		    }
-		} else {
-		    resbits3=type3datawidth-resbits3;
-		    sendword3 |= (stream3data >> resbits3);
-		    outbuf3[index3++]=sendword3;
-		    resbits3=32-resbits3;
-		    sendword3=stream3data << resbits3;
+		    thisepoch_testevents++;
+		} else { /* save as key event */
+		    /* add to stream 3 */
+		    stream3data = d & stream3datamask;
+		    /* printf("stream3data: %x\n",stream3data); */
+		    if (resbits3>=type3datawidth) {
+			sendword3 |= (stream3data << (resbits3-type3datawidth));
+			resbits3 = resbits3-type3datawidth;
+			if (resbits3==0) { 
+			    outbuf3[index3++]=sendword3;
+			    sendword3=0;resbits3=32;
+			}
+		    } else {
+			resbits3=type3datawidth-resbits3;
+			sendword3 |= (stream3data >> resbits3);
+			outbuf3[index3++]=sendword3;
+			resbits3=32-resbits3;
+			sendword3=stream3data << resbits3;
+		    }
 		}
 		
 		/* add to stream 4 */
@@ -1397,7 +1585,7 @@ int main (int argc, char *argv[]) {
 		    sendword4=t4a << resbits4;
 		}
 		
-		thisepoch_keyevents++;
+		thisepoch_siftevents++;
 	    }
 	    thisepoch_converted_entries++;
 	}
@@ -1427,11 +1615,12 @@ int main (int argc, char *argv[]) {
 
     
     /* evtl. close stream files */
-    for (i=1;i<5;i++) 
+    for (i=1;i<6;i++) 
 	if (1== (typemode[i])) close(handle[i]); /* single file */
     
     for (i=0;i<5;i++) if (logfname[i][0]) fclose(loghandle[i]); /* logs */
     free(buffer1); free(buffer2); free(outbuf3); free(outbuf4); /* buffers */
+    free(outbuf5);
 
     free(decisionmatrix);
     fclose(debuglog);
