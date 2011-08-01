@@ -101,6 +101,8 @@
 		       the chopper side (low cnt rate)
 		    4: deviceindep proto with te 4det connected to the
 		       chopper side
+                    5: BC protocol; similar to standard BB84, but handles basis
+		       differently.
    -q epochnum      defines how many epochs should be converted before the
                     program stops. When set to 0, it loops forever; this is
 		    the default.
@@ -327,7 +329,7 @@ typedef struct protocol_details_B { /* used in costream program */
 				    the argument is the decision array. */
 } pd_B;
 
-#define PROTOCOL_MAXINDEX 4
+#define PROTOCOL_MAXINDEX 5
 /* helper functions for filling in the decision table */
 void FILL_DEC_PROTO0(int *t) {/* parameter is 8 bits wide , with the stream-2
 				bits in bit7..4 of p3, stream-1 bits in lsbits.
@@ -342,7 +344,7 @@ void FILL_DEC_PROTO0(int *t) {/* parameter is 8 bits wide , with the stream-2
 	    }
 }
 void FILL_DEC_PROTO1(int*t) {/* for standard BB84. parameter is 5 bits wide,
-				bits0..4 from stream 1, bit 4 from stream 2.
+				bits0..3 from stream 1, bit 4 from stream 2.
 				Result is
                                 one bit wide for stream-3 data (local raw key),
 				and 0 bits for stream-4 data (acknowledge).
@@ -393,6 +395,19 @@ void FILL_DEC_PROTO4(int*t) {/* For the devindep protocol, with  4 detectors
 	t[0x10+(1<<i)]=0x40 + (i*5) + 0x20; /* test, s-4 and s-5 same */
     t[0x13]=0x10+0x20; t[0x16]=0x11+0x20; /* key bits */
 }
+void FILL_DEC_PROTO5(int*t) {/* modified BB84. parameter is 4 bits wide,
+				bits0..3 from stream 1. Result is
+                                two bits for stream-3 data (basis/result),
+				and 0 bits for stream-4 data (acknowledge).
+				The decision bit (bit 2) is always on for
+				single detector events.
+				sequence stream 1: (lsb)V -H + (msb)
+			        base bit from stream 2: 1 is +-, 0 is HV */
+    int bbtab[16]={0,4,6,0, 5,0,0,0, 7,0,0,0, 0,0,0,0};
+
+    int i;
+    for (i=0;i<16;i++) t[i]=bbtab[i];
+}
 
 struct protocol_details_B proto_table[] = {
     {/* protocol 0: all bits go everywhere */
@@ -428,7 +443,12 @@ struct protocol_details_B proto_table[] = {
 	32, /* size of combined pattern */
 	&FILL_DEC_PROTO4,
     },
-
+    {/* protocol 5: modified BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
+	HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 */
+        2,0,0,16,0,
+	16, /* size of combined pattern */
+	&FILL_DEC_PROTO5
+    },
 
     /* helper functions for filling in the decision table */
 };

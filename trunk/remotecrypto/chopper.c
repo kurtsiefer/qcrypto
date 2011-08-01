@@ -110,6 +110,9 @@
 		    bell basis or key basis
 		 4: four detectors connected to this side, device-indep
 		    operation. only time is transmitted.
+		---------modifications to BC protocol-----------------
+		 5: Like 1, but no basis is transmitted, but basis/result
+		    kept in local file
 
 		 
 PROTECTION OPTION
@@ -130,6 +133,7 @@ PROTECTION OPTION
    added -m option 18.1.06 chk
    tried to fix rollover problem in difference test 060306chk
    merge with deviceindep protocol set 29.7.09chk
+   started to extend for bc protocol
 
  To Do:
    populate lookup tables -ok?
@@ -189,45 +193,51 @@ typedef struct protocol_details {
     int pattern2[16];
     int pattern3[16];} pd;
 
-#define PROTOCOL_MAXINDEX 4
+#define PROTOCOL_MAXINDEX 5
 
 static struct protocol_details proto_table[] = {
-{/* protocol 0: all bits go everywhere */
+  {/* protocol 0: all bits go everywhere */
     4,4,16,4,
     {0,1,2,3,4,5,6,7,8,9,0xa,0xb,0xc,0xd,0xe,0xf}, /* pattern 2 */
     {0,1,2,3,4,5,6,7,8,9,0xa,0xb,0xc,0xd,0xe,0xf} /* pattern 3 */
-},
-{/* protocol 1: standard BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
-    HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 */
+  },
+  {/* protocol 1: standard BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
+      HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 */
     1,1,16,4,
     {0,0,1,0, 0,0,0,0, 1,0,0,0, 0,0,0,0}, /* pattern 2 : basis */
     {0,0,0,0, 1,0,0,0, 1,0,0,0, 0,0,0,0} /* pattern 3 : result */
-},
-{/* protocol 2: rich BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
-    HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 
-    if an illegal pattern was detected, a pair info pattern (2) or a
-    multi/no coincidence pattern (3) is recorded*/
+  },
+  {/* protocol 2: rich BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
+      HV basis: 0, +-basis: 1, result: V-: 0, result: H+: 1 
+      if an illegal pattern was detected, a pair info pattern (2) or a
+      multi/no coincidence pattern (3) is recorded*/
     2,2,16,4,
     {3,0,1,2, 0,2,2,3, 1,2,2,3, 2,3,3,3}, /* pattern 2 : basis */
     {3,0,0,2, 1,2,2,3, 1,2,2,3, 2,3,3,3} /* pattern 3 : result */
-},
-{/* protocol 3: device-independent, six-detectors @chopper. assumed sequence:
-    V+22.5,-22.5, H+22.5, +45+22.5, H, V (!!!CHECK SPECS!!!)
-    illegal pattern: value 5, bell result: value 0-3, key result: value 4
-    the local file keeps the original detector combination */
+  },
+  {/* protocol 3: device-independent, six-detectors @chopper. assumed sequence:
+      V+22.5,-22.5, H+22.5, +45+22.5, H, V (!!!CHECK SPECS!!!)
+      illegal pattern: value 5, bell result: value 0-3, key result: value 4
+      the local file keeps the original detector combination */
     3,4,16,6,
     {5,0,1,4, 2,5,4,5, 3,5,5,5, 5,5,5,5}, /* pattern2: bell/key */
     {0,1,2,3, 4,5,6,7, 0x8,0x9,0xa,0xb, 0xc,0xd,0xe,0xf} /* local: orig */
-},
-{/* protocol 4: device-independent, four detectors @chopper. assumed sequence:
-    V,-, H, + (!!!CHECK SPECS!!!)
-    illegal pattern: value 0, otherwise 1.
-    the local file keeps the original detector combination */
+  },
+  {/* protocol 4: device-independent, four detectors @chopper. assumed sequence:
+      V,-, H, + (!!!CHECK SPECS!!!)
+      illegal pattern: value 0, otherwise 1.
+      the local file keeps the original detector combination */
     1,4,16,4,
     {0,1,1,0, 1,0,0,0, 1,0,0,0, 0,0,0,0}, /* pattern2: legal (1) /illegal (0)*/
     {0,1,2,3, 4,5,6,7, 0x8,0x9,0xa,0xb, 0xc,0xd,0xe,0xf} /* local: orig */
-},
-    };
+  },
+  {/* protocol 5: 'reduced BB84. assumed sequence:  (LSB) V,-,H,+ (MSB);
+      result: V: 0, -: 2, H: 1, +: 3 such that bit 0 is result, bit 1 basis */
+    0,2,16,4,
+    {0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0}, /* pattern 2 : send nothing */
+    {0,0,2,0, 1,0,0,0, 3,0,0,0, 0,0,0,0} /* pattern 3 : result */
+  },
+};
 
 
 /* error handling */
