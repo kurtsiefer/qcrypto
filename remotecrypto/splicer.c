@@ -81,6 +81,8 @@
 		    2: same as mode 0
 		    3: device-independent protocol, this side has 6 detectors
 		    4: device-independent proto, this side has 4 detectors
+                    5: BC version of proto1, just copies received tags
+		       from stream 3 into rawkey
    -q epochunum:    number of epocs to be read. When set to 0, it loops
                     forever; this is the default.
 
@@ -202,7 +204,7 @@ typedef struct protocol_details_C { /* used in splicer program */
     void (*filltable)(unsigned int*); /* helper function to fill this array.
 					 Has to be called in the beginning */
 } pd_C;
-#define PROTOCOL_MAXINDEX 4
+#define PROTOCOL_MAXINDEX 5
 void FILL_TABLE_PROTO0(unsigned int *t) {
     int i;
     for (i=0;i<256;i++) 
@@ -241,7 +243,10 @@ void FILL_TABLE_PROTO4(unsigned int *t) {/* version for local w 4 detectors */
     t[0x42]=0; t[0x41]=1;
     return;
 }
-
+void FILL_TABLE_PROTO5(unsigned int *t) { /* BC version, copies everything */
+    t[0]=0;t[1]=1;t[2]=2;t[3]=3;
+    return;
+}
 
 struct protocol_details_C proto_table[] = {
     {/* service protocol. emits all bits in stream 3i and 4i into the outword.
@@ -267,6 +272,10 @@ struct protocol_details_C proto_table[] = {
      */
 	4,3,1,4,128,
 	&FILL_TABLE_PROTO4},
+    {/* BC protocol. expects 2 bits from stream 3i, and nothing from
+      stream 4i. reflects the inbits to the outbits. */
+	2,0,2,0,4,
+	&FILL_TABLE_PROTO5},
 };
 
 
