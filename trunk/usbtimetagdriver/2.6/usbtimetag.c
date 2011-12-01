@@ -629,8 +629,10 @@ static int usbdev_flat_open(struct inode *inode, struct file *filp) {
    
     /* look out for usb_set_interface() function */
     err=usb_set_interface(cp->dev, 0, 1); /* select alternate setting 1 */
-    if (err) return -ENODEV; /* something happened */
-
+    if (err) {
+      cp->iocard_opened = 0; /* mark as closed */
+      return -ENODEV; /* something happened */
+    }
     /* allocate the urbs */
     cp->urblist = (struct urb **)kmalloc(sizeof(struct urb *)*URBS_NUMBER,
 					 GFP_KERNEL);
@@ -644,6 +646,7 @@ static int usbdev_flat_open(struct inode *inode, struct file *filp) {
     }
     if (i<URBS_NUMBER) { /* urb allocation failed */
 	printk("%s: could not allocate all %d urbs\n",USBDEV_NAME,URBS_NUMBER);
+	cp->iocard_opened = 0; /* mark as closed */	
 	return -ENOMEM;
     }
     cp->totalurbs=URBS_NUMBER; /* keep them */
