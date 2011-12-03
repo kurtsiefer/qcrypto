@@ -682,7 +682,7 @@ static int usbdev_flat_close(struct inode *inode, struct file *filp) {
     return 0;
 }
 /* change in the ioctl structure to unlocked_ioctl...removed inode parameter */
-static int usbdev_flat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+static long usbdev_flat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
     struct cardinfo *cp = (struct cardinfo *)filp->private_data;
     unsigned char data[5]; /* send stuff */
     unsigned char len=3; unsigned char chksum=0;
