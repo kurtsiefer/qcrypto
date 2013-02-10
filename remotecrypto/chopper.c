@@ -89,6 +89,9 @@
                  has only an effect in service mode
    -F            flushmode. If set, the logging info is flushed after every
                  write. useful if used for driving the transfer deamon.
+   -e debugfile  choose a file for debug logging. This used to be hardcoded to
+                 the file /tmp/cryptostuff/chopdebug, but is turned off for use
+		 with other applications.
 
  PROTOCOL OPTION
    -p num:       select protocol option. defines what transmission protocol
@@ -278,6 +281,8 @@ char *errormessage[] = {
   "error reading ignorecount argument",
   "ignoecounts  less than 0",
   "error reading max time difference value (must be >=0)", /* 35 */
+  "Error reading debug file name.",
+  "cannot open debug log file",
 };
 
 int emsg(int code) {
@@ -304,6 +309,7 @@ int verbosity_level = DEFAULT_VERBOSITY;
 char fname2[FNAMELENGTH]="";
 char fname3[FNAMELENGTH]="";
 char logfname[FNAMELENGTH]="";
+char debugfname[FNAMELENGTH]="";
 int type2mode = 0; /* no mode defined. other tpyes:
 		      1: single file, 2: directory save, ... */
 int type3mode = 0; /* same as for type2 files */
@@ -362,7 +368,7 @@ int open_epoch(unsigned int te) {
 	overlay = ((aepoc >>15) & 3 )| /* from absolute epoc */
 	    ((te >>13) & 0xc); /* from timestamp epoc */
 	finalepoc = (aepoc & 0xfffe0000) + te + overlay_correction[overlay];
-	if (overlay_correction[overlay])  {
+	if ((debuglog) && overlay_correction[overlay])  {
 	    fprintf(debuglog,
 		    "ovrly corr; tim: %lld, te: %08x, overlay: %08x\n",
 		    tim,te,overlay);
@@ -530,8 +536,10 @@ int close_epoch() {
 		break;
 	}
 	if (flushmode) fflush(loghandle);
-	fprintf(debuglog,"debuglog:%8x\n",head2.epoc);
-	fflush(debuglog);
+	if (debuglog) {
+	  fprintf(debuglog,"debuglog:%8x\n",head2.epoc);
+	  fflush(debuglog);
+	}
     }
  
     /* servo loop for optimal compression parameter */
@@ -591,7 +599,7 @@ int main (int argc, char *argv[]) {
 
     /* parsing options */
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "V:i:O:D:o:d:ULl:p:q:Q:Fy:m:46")) != EOF) {
+    while ((opt=getopt(argc, argv, "V:i:O:D:o:d:ULl:e:p:q:Q:Fy:m:46")) != EOF) {
 	switch (opt) {
 	    case 'V': /* set verbosity level */
 		if (1!=sscanf(optarg,"%d",&verbosity_level)) return -emsg(1);
@@ -623,6 +631,10 @@ int main (int argc, char *argv[]) {
 		if (sscanf(optarg,FNAMFORMAT,logfname) != 1) return -emsg(7);
 		logfname[FNAMELENGTH-1]=0;  /* security termination */
 		break;
+	    case 'e': /* debug file name */
+ 		if (sscanf(optarg,FNAMFORMAT,debugfname) != 1) return -emsg(36);
+		debugfname[FNAMELENGTH-1]=0;  /* security termination */
+		break;               
 	    case 'p': /* set protocol type */
 		if (1!=sscanf(optarg,"%d",&proto_index)) return -emsg(25);
 		if ((proto_index<0)| (proto_index>PROTOCOL_MAXINDEX)) 
@@ -685,8 +697,13 @@ int main (int argc, char *argv[]) {
 	    if (!loghandle) return -emsg(32);
 	} else { loghandle = stdout;}
     }
-    debuglog=fopen("/tmp/cryptostuff/chopdebug","a+");
-
+    
+    if (debugfname[0]) { /* we got a file name */
+      debuglog=fopen(debugfname,"a+");
+      if (!debuglog) return -emsg(37);
+    } else {
+      debuglog=NULL; /* we don't log debug messages */
+    }
 
     /* open I/O streams if possible */
     switch (type2mode) {
@@ -785,26 +802,32 @@ int main (int argc, char *argv[]) {
 		    inpointer++;
 		    continue; /* ...are ignored */
 		}
-		fprintf(debuglog,
-			"chopper: got neg difference; old: %llx, new: %llx\n",
-			t_old,t_new);
-		fflush(debuglog);
+		if (debuglog) {
+		  fprintf(debuglog,
+			  "chopper: got neg difference; old: %llx, new: %llx\n",
+			  t_old,t_new);
+		  fflush(debuglog);
+		}
 	    }
 	    if (maxdiff) { /* test for too large timings */
 		if (t_new > t_old + maxdiff) {
 		    if ((t_old-t_new+maxdiff)&0x1000000000000ll) { /*rollover*/
 			if (t_old) { /* make sure to allow time diff at start */
-			    inpointer++;
+			  inpointer++;
+			  if (debuglog) {
 			    fprintf(debuglog,
 				    "chopper: point 2, old: %llx, new: %llx\n",
-				    t_old,t_new);fflush(debuglog);
-			    continue;
+				    t_old,t_new);
+			    fflush(debuglog);
+			  }
+			  continue;
 			}
-			fprintf(debuglog,
-				"chopper: got pos difference; old: %llx, new: %llx\n",
-				t_old,t_new);
-			fflush(debuglog);
-			
+			if (debuglog) {
+			  fprintf(debuglog,
+				  "chopper: got pos difference; old: %llx, new: %llx\n",
+				  t_old,t_new);
+			  fflush(debuglog);
+			}
 		    }
 		}
 	    }
@@ -814,9 +837,12 @@ int main (int argc, char *argv[]) {
 		/* THIS TEST SHOULD BE OBSOLETE... */
 		if (((t_epoc-oldepoc) & 0x10000) && epochinit) {/*  rollover */
 		    /* something's fishy. ignore value */
-		    fprintf(debuglog,
-			"chopper: point 3, old: %llx, new: %llx\n",
-			t_old,t_new);fflush(debuglog);
+		    if (debuglog) {
+		      fprintf(debuglog,
+			      "chopper: point 3, old: %llx, new: %llx\n",
+			      t_old,t_new);
+		      fflush(debuglog);
+		    }
 		    inpointer++;
 		    fishyness++;
 		    if (fishyness>MAXIMAL_FISHYNESS) {
@@ -920,6 +946,6 @@ int main (int argc, char *argv[]) {
     if (verbosity_level>=0) fclose(loghandle);
     /* free buffers */
     free(inbuffer); free(outbuf2);free(outbuf3);
-    fclose(debuglog);
+    if (debuglog) fclose(debuglog);
     return 0; /* end begnignly */
 }
