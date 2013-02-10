@@ -3,7 +3,9 @@
 # script to save all temporary files into a backup target directory
 
 #name for bkup directory
-BD=~/crbkup
+NODE=$( uname -n )
+DS=$( date +%Y%m%d_%H%M )
+BD=~/crbkup_$NODE_$DS
 
 # name of local machine
 NA=$HOSTNAME
