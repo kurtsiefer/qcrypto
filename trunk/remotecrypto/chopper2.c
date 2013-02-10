@@ -81,6 +81,11 @@
                  single counts include local coincidences. Also reduces the
 		 number of events in the output log to five (total cnts and
 		 individual detector lines).
+   -d debugname  specifies the file name of an optional debugging log file.
+                 If this file is not provided, no debugging log file is
+		 generated. The old debug filename was hardcoded as 
+		 /tmp/cryptostuff/choplog2 and has now been removed. Check
+		 downstream processing if needed.
 
 PROTECTION OPTION
    -m maxnum:    maximum time for a consecutive event to be meaningful. If
@@ -99,6 +104,7 @@ inserted -m option (around jan 2006 chk)
 inserted -V 3 option
 checked rollover problem in neg difference test 070306chk
 merges with 6-detector version and introduced -4 compat option 29.7.09chk
+made debuglog file optional 10.2.13chk
 
 ToDo:
 check buffer sizes
@@ -135,6 +141,7 @@ remove fishyness correction; obsolete with USB hardware??
 int verbosity_level = DEFAULT_VERBOSITY; /* determie log file format */
 char fname1[FNAMELENGTH]="";  /* input file name */
 char logfname[FNAMELENGTH]="";   /* log file name */
+char debugfname[FNAMELENGTH]=""; /* for debugging info */
 int type1mode = 0; /* no mode defined. other tpyes:
 		      1: single file, 2: directory save, ... */
 int uepoch= DEFAULT_UEPOCH; /* universal epoch mode 0: no, 1: yes */
@@ -175,6 +182,8 @@ char *errormessage[] = {
     "cannot write type-1 data", /* 15 */
     "too large jump in incoming events for too long",
     "error reading max time difference value (must be >=0)",
+    "cannot read debugfile name",
+    "cannot open debug file",
 
 };
 
@@ -223,7 +232,7 @@ int open_epoch(unsigned int te) {
 	overlay = ((aepoc >>15) & 3 )| /* from absolute epoc */
 	    ((te >>13) & 0xc); /* from timestamp epoc */
 	finalepoc = (aepoc & 0xfffe0000) + te + overlay_correction[overlay];
-	if (overlay_correction[overlay])  {
+	if ((debuglog) && overlay_correction[overlay])  {
 	    fprintf(debuglog,
 		    "ovrly corr; tim: %lld, te: %08x, overlay: %08x\n",
 		    tim,te,overlay);
@@ -333,8 +342,10 @@ int close_epoch() {
 	}
 	if (flushmode) fflush(loghandle);
     }
-    fprintf(debuglog,"ch2depoch: %08x\n",head1.epoc);
-    fflush(debuglog);
+    if (debuglog) {
+      fprintf(debuglog,"ch2depoch: %08x\n",head1.epoc);
+      fflush(debuglog);
+    }
     return 0;
 }
 
@@ -362,7 +373,7 @@ int main (int argc, char *argv[]) {
 
     /* parse options */
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "i:O:D:l:V:ULFm:4")) != EOF) {
+    while ((opt=getopt(argc, argv, "i:O:D:l:V:ULFm:4d:")) != EOF) {
 	switch(opt) {
 	    case 'V': /* set verbosity level */
 		if (1!=sscanf(optarg,"%d",&verbosity_level)) return -emsg(1);
@@ -399,12 +410,22 @@ int main (int argc, char *argv[]) {
 	    case '4': /* full backwards compat option */
 		fourdetectorlogoption=1;
 		break;
-
+	    case 'd': /* a debug log file name is provided */
+		if (sscanf(optarg,FNAMFORMAT,debugfname) != 1) return -emsg(18);
+		debugfname[FNAMELENGTH-1]=0;  /* security termination */
+		break;
+	        
 	}
     }
     
-    debuglog=fopen("/tmp/cryptostuff/choplog2","a+");
-    fprintf(debuglog,"starting chopper2\n");
+    if (debugfname[0]) { /* we have a debug file to fill */
+      debuglog=fopen(debugfname,"a+");
+      if (!debuglog) return -emsg(19);
+    } else {
+      debuglog=NULL; /* no debug file present */
+    }
+   
+    if (debuglog) fprintf(debuglog,"starting chopper2\n");
 
     /* prepare input buffer */
     inbuffer=(struct rawevent *)malloc(INBUFENTRIES*sizeof(struct rawevent));
@@ -465,7 +486,8 @@ int main (int argc, char *argv[]) {
 	i1=inbytesread-i1;  /* leftover from last time */
 	ibf2a=&ibf2[i1]; /* pointer to next free character */
 	// if (i1) fprintf(stderr,"got leftover: i1= %d bytes /n",i1);
-	if (i1) fprintf(debuglog,"got leftover: i1= %d bytes /n",i1);
+	if (debuglog) 
+	  if (i1) fprintf(debuglog,"got leftover: i1= %d bytes /n",i1);
 
 	/* read in next bufferfill */
 	inbytesread = read(handlein,ibf2a, 
@@ -485,7 +507,6 @@ int main (int argc, char *argv[]) {
 	    /* read one value out of buffer */
 	    cv=inpointer->cv; dv=inpointer->dv;
 	    t_epoc = cv>>15; /* take most sig 17 bit of timer */
-	    /* fprintf(debuglog,"inel: %d, cv: %08x dv: %08x\n",inelements,cv,dv); */
 	    t_fine = (cv <<17)| (dv >>15);
 	    t_new = (((unsigned long long)t_epoc)<<32)
 		+ t_fine; /* get event time */
@@ -495,9 +516,11 @@ int main (int argc, char *argv[]) {
 		    fprintf(stderr,
 			    "got negative difference: new: %0llx old: %0llx\n",
 			    t_new,t_old);
-		    fprintf(debuglog,
-			    "got negative difference: new: %0llx old: %0llx\n",
-			t_new,t_old);
+		    if (debuglog) 
+		      { fprintf(debuglog,
+				"got negative difference: new: %0llx old: %0llx\n",
+				t_new,t_old);
+		      }
 		    
 		    continue; /* ...are ignored */
 		}
@@ -509,9 +532,11 @@ int main (int argc, char *argv[]) {
 			    fprintf(stderr,
 				    "got pos difference: new: %016llx old: %016llx\n",
 				t_new,t_old);
-			    fprintf(debuglog,
-				    "got pos difference: new: %016llx old: %016llx\n",
-				    t_new,t_old);
+			    if (debuglog) {
+			      fprintf(debuglog,
+				      "got pos difference: new: %016llx old: %016llx\n",
+				      t_new,t_old);
+			    }
 			    
 			inpointer++;
 			continue;
@@ -528,7 +553,8 @@ int main (int argc, char *argv[]) {
 		    /* something's fishy. ignore value */
 		    inpointer++;
 		    fishyness++;
-		    fprintf(stderr,"got neg tepoc: old: %08x new: %08x",oldepoc,t_epoc);fprintf(debuglog,"got neg tepoc: old: %08x new: %08x",oldepoc,t_epoc);
+		    fprintf(stderr,"got neg tepoc: old: %08x new: %08x",oldepoc,t_epoc);
+		    if (debuglog) fprintf(debuglog,"got neg tepoc: old: %08x new: %08x",oldepoc,t_epoc);
 		    if (fishyness>MAXIMAL_FISHYNESS) {
 			fprintf(stderr,"(negdt): tepoch: %08x, old: %08x\n",
 				t_epoc,oldepoc);
@@ -540,7 +566,8 @@ int main (int argc, char *argv[]) {
 		    /* something's fishy - epoch too far */
 		    inpointer++;
 		    fishyness++;
-		    fprintf(stderr,"got pos tepoc: old: %08x new: %08x",oldepoc,t_epoc);fprintf(debuglog,"got pos tepoc: old: %08x new: %08x",oldepoc,t_epoc);
+		    fprintf(stderr,"got pos tepoc: old: %08x new: %08x",oldepoc,t_epoc);
+		    if (debuglog) fprintf(debuglog,"got pos tepoc: old: %08x new: %08x",oldepoc,t_epoc);
 
 		    if (fishyness>MAXIMAL_FISHYNESS) {
 			fprintf(stderr,"(posdt): tepoch: %08x, old: %08x\n",
