@@ -591,11 +591,15 @@ static int usbdev_mmap(struct file * file, struct vm_area_struct *vma) {
     
     /* do mmap to user space */
     vma->vm_ops = &usbdev_vm_ops; /* get method */
-    vma->vm_flags |= VM_RESERVED; /* avoid swapping , also: VM_SHM?*/
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
+    vma->vm_flags |= VM_RESERVED; /* to avoid swapping ?*/
 #ifdef HAS_FAULT_METHOD
     vma->vm_flags |= VM_CAN_NONLINEAR; /* has fault method; do we need more? */
 #endif
-
+#else
+    vma->vm_flags |= VM_IO | VM_DONTEXPAND;/* replaces obsoleted VM_RESERVED */
+#endif
     /* populate the urbs - perhaps this should go to an ioctl starting
        the engine ? */
     for (i=0;i<cp->totalurbs;i++) {
@@ -939,7 +943,7 @@ static int __init usbdev_init(void) {
     cif=NULL;
     rc = usb_register( &usbdev_driver );
     if (rc) 
-	err("%s: usb_register failed. Err: %d",USBDEV_NAME,rc);
+	pr_err("%s: usb_register failed. Err: %d",USBDEV_NAME,rc);
     return rc;
 }
 
