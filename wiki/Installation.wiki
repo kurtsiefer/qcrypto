@@ -14,7 +14,7 @@ Various elements of the code, in particular the GUI, require various packages to
 
 
 = Installation on our common systems =
-On most of our machines, we currently use a flavour of SuSE Linux to run the code, currently  openSUSE 10.3 and 11.0 on laptops (lenovo x60s).
+On most of our machines, we currently use a flavour of SuSE Linux to run the code, currently  openSUSE 10.3 and 11.0 on laptops (lenovo x60s). By now, the software suite works well up to openSUSE 12.2. both on i586 and x66_64 hardware.
 
  * At the moment, the recommended installation procedure starts with generation of a common program directory _somename_ somewhere in user space. We use _programs_ for _somename_, so if there are problems with some other names be prepared for residual hardcoded namings.
  * The code tree then is installed into this dirctory with svn using the command....
