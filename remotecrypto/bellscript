@@ -1,0 +1,1219 @@
+#!/usr/bin/wish
+
+# script to provide a gui interface to the crypto components for a Bell demo
+# used for various exhibits
+
+# cleanup leftover processes
+if {[catch {exec ps -o pid -C readevents,costream,chopper,chopper2 h} a]} {
+    set a ""
+}
+foreach b $a {catch {exec kill -SIGHUP $b}}
+
+# global definitions and defaults
+set dataroot "/tmp/belldemo"
+set timestamp1device "/dev/ioboards/timestamp0"
+set timestamp2device "/dev/ioboards/timestamp1"
+set programroot [pwd]; # hope this works..
+set gnucontrol "$dataroot/monitor.gnu" ; # for gnu file
+set gnucanvas  "$dataroot/gcan" ; # canvas file
+set diagdatafile "$dataroot/diagdata" ; # for storing diagnosis data
+set diaglogfile "$dataroot/diagnosis_log" ; # for tracking QBER etc
+set diagdatafile2 "$dataroot/histodata" ; # for storing timing histo data
+set diagdatafileold "$dataroot/diagdataold" ; # for storing diagnosis data
+set diagdatafile3 "$dataroot/singledata" ; # for counting singles
+set diagdatafile3old "$dataroot/singledataold" ; # for counting singles II
+set costreamglogfile "$dataroot/costream_glog" ; # general logging of costream
+set costreamglogmode 0 ; # don't log automatically
+set ldetnum 4 ; # This can be either four or six. see localparam
+set localparamfile "[pwd]/localparams" ; # for local parameters
+set rqid "-"
+set rqprot 0
+set rcoincw 2000 ; # read coincidence window for 
+set periodecount 10 ; # number of epochs for finding a periode
+set costreamhistoopt "" ; # histogramming off normally
+set costreamhistonum 10 ; # number of averagings
+set akfbufferorder 19 ; # defines size of AKF algo
+set detcorrection "" ; # detector timing correction
+set detcorrmode 0 ; # detector correction, default off
+for {set i 0 } {$i < 6} {incr i} { set detcval($i) 0 } ; # det skew
+
+set running 0 ; # prevents switching on single counting
+set rawcleanoption 1 ; # remove unused t3/t4/t5/raw files on the go
+set locstat "Idle"
+
+set maxeventdiff 20000 ; # corresponds to 50 cps
+
+# defines symmetry. 0: undecided, 1: timest sender 2: tmest receiver
+set eventpid 0
+set rawreadpid 0
+set costreampid 0
+
+# gadgets
+set BellValMax 2.0
+set BellTextMax "-"
+
+# coincitende time windows filter constants etc
+set rmtcoinctime 15 ; # coincidence time window for external coinc in 1/4 nsec
+set trackwindow 30 ; # tracking window
+set tracktime 2000000 ; # tracking loop filter const in microsec
+
+
+# status variables
+# 2: connected 3: disconnected 4: identified
+set commhandle 0
+set statstring "-" ; # variable for transferring costream log output
+set Mdeltat "-" ; set Maccidentals "-" ; set Mcoincidences "-"
+set Moutepoch "-" ; # for status display
+set firstreceivedepoch "x" ; # for getting delays in file transfers straight
+set firstepoch "x" ; # just to find errors
+
+
+
+# load local parameter file
+if {[file exists $localparamfile]} {
+    source $localparamfile
+}
+
+#---------------------------------------------------------------------
+# procedures to prepare the standard directories
+proc makedirectories {} {
+    global dataroot debugval
+    if {![file exists $dataroot]} { ; # need to create master dir
+	file mkdir $dataroot
+    } elseif {![file isdirectory $dataroot] } {
+	file delete $dataroot ; file mkdir $dataroot
+    }
+    foreach i {t1 t2 t3 t4 t5 rawkey receivefiles sendfiles histos} { ; # create subdirs
+	set d $dataroot/$i
+	if {![file exists $d]} {
+	    file mkdir $d 
+	} elseif {![file isdirectory $d]} {
+	    file delete $d ; file mkdir $d
+	}
+    }
+    # make pipes for communication with transferprogram
+    foreach i {rawevents rawevents2 t1logpipe t2logpipe cmdpipe genlog  cntlogpipe cntlogpipe2} {
+	set d $dataroot/$i ; # make message pipe
+	if {![file exists $d]} {
+	    exec mkfifo $d
+	} elseif {[file type $d] ne "fifo"} {
+	    file delete $d
+	    exec mkfifo $d
+	}
+    }
+
+}
+
+# remove stale files from send buffer 
+proc removestalecommfiles {} {
+    global dataroot
+    set fl [glob -nocomplain $dataroot/receivefiles/* $dataroot/sendfiles/* ]
+    foreach f $fl { file delete $f }
+}
+
+proc removestaletempfiles {} {
+    global dataroot
+    foreach di {t1 t2 t3 t4 t5} {
+	set fl [glob -nocomplain $dataroot/$di/* ]
+	foreach f $fl { file delete $f }
+    }
+}
+proc removestalelogfiles {} {
+    global dataroot
+    set fl {choplog2 cmdins debuglog pfinderror rawpacketindex costreamerror costream_glog diagnosis_log}
+    foreach f $fl { file delete $dataroot/$f }
+}
+
+proc removehistofiles {} {
+    global dataroot diagdatafile2
+    set fl [ glob -nocomplain $dataroot/histos/tfli* ] 
+    if { [ file exists $diagdatafile2 ]} { exec rm $diagdatafile2 }
+    foreach f $fl { file delete $f }
+}
+
+
+# for handling transferd crashes
+proc cleanupthemess1 {} {
+    global messagepipestatus msgh smsgh
+    global commhandle debugval
+    .m1 configure -bg orange
+    emergencyshutdown
+    return
+}
+
+
+# startup of reader/chopper on sender side
+proc startinputpart1 {} {
+    global programroot dataroot readerpid chopperpid
+    global locstat debugval rawdummyhandle detcorrection maxeventdiff
+    global t2logpipe ldetnum
+    global timestamp1device
+
+    # select protocol for chopper
+    set proto 0 ; # this is 'service' protocol 
+   
+    set t2logpipe [open $dataroot/t2logpipe r+]
+    fileevent $t2logpipe readable t2logactivity
+    
+
+    # prevent stress with rawevents:
+    set rawdummyhandle [open $dataroot/rawevents r+]
+
+    # remove t3 files
+    set fl [glob -nocomplain $dataroot/t3/* ]
+    foreach f $fl {file delete $f }
+    set chopperpid [exec $programroot/chopper -i $dataroot/rawevents -D $dataroot/t2 -d $dataroot/t3 -l $dataroot/t2logpipe -V 4 -U -p $proto -Q  5 -F -y 20 -m $maxeventdiff 2>>$dataroot/choppererror & ]
+
+    # start readevents but keep passive
+    set readerpid [exec $programroot/readevents -U $timestamp1device -a 1 -R -A -e -S 20 $detcorrection > $dataroot/rawevents 2>>$dataroot/readeventserror & ]
+}
+# shutdown reader/chopper
+proc shutdowninputpart1 {} {
+    global readerpid chopperpid rawdummyhandle t2logpipe
+    # shut off reader
+    if {$readerpid !=0 } {catch {exec kill -SIGHUP $readerpid}}
+    if {$chopperpid !=0 } {catch {exec kill $chopperpid }}
+    set readerpid 0
+    set chopperpid 0
+
+    # close $rawdummyhandle
+    catch {close $t2logpipe}
+}
+# readevents from chopper prog
+proc t2logactivity {} {
+    global t2logpipe debugval dataroot debugval singlesel
+    gets $t2logpipe a ; # read from stream
+    # set debugval $a ; update
+    set b [split $a " \t"] ; # whole string
+    set sep [lindex $b 0]
+    exec echo $sep > $dataroot/cmdpipe ; # trigger transmission - not needed?
+
+    if {$singlesel == 1} {dolog2 [concat [lrange $b 1 end ]]}
+}
+
+# enable reader side 1
+proc enableinputpart1 {} {
+    global readerpid
+    # switch on reader
+    if {$readerpid != 0} { catch {exec kill -10 $readerpid}}
+}
+# disable reader part 1
+proc disableinputpart1 {} {
+    global readerpid
+    # shut off reader
+    if {$readerpid !=0 } { catch {exec kill -12 $readerpid}}
+}
+# start reader on receiving side
+proc startinputpart2 {} {
+    global programroot dataroot readerpid2 chopperpid2 t1logpipe
+    global t1logcount debugval rawdummyhandle2 detcorrection maxeventdiff
+    global timestamp2device
+
+    set t1logcount 0
+    set t1logpipe [open $dataroot/t1logpipe r+]
+    set debugval "hello3" ; update
+
+    # reomve t1 files
+    set fl [glob -nocomplain $dataroot/t1/* ]
+    foreach f $fl {file delete $f }
+
+
+    fileevent $t1logpipe readable t1logactivity
+    set chopperpid2 [exec $programroot/chopper2 -i $dataroot/rawevents2 -l $dataroot/t1logpipe -V 3 -D $dataroot/t1 -U -F -m $maxeventdiff &]
+
+    set readerpid2 [exec $programroot/readevents -U $timestamp2device -a 1 -R -A -e -S 20 $detcorrection > $dataroot/rawevents2 2>>$dataroot/readeventserror &]
+    update ; # temporary
+}
+#end 
+proc shutdowninputpart2 {} {
+    global readerpid2 chopperpid2 t1logpipe rawdummyhandle2
+    if {$readerpid2 != 0} { catch {exec kill -SIGHUP $readerpid2}}
+    if {$chopperpid2 != 0} { catch {exec kill $chopperpid2}}
+    set readerpid2 0
+    set chopperpid2 0
+    catch {close $t1logpipe}
+    # catch {close $rawdummyhandle2}
+}
+proc enableinputpart2 {} {
+    global  readerpid2 debugval
+    if {$readerpid2 != 0} {catch {exec kill -10 $readerpid2}}
+    set debugval "en pid $readerpid2" ; update
+}
+proc disableinputpart2 {} {
+    global readerpid2
+    if {$readerpid2 != 0} {catch {exec kill -12 $readerpid2}}
+}
+# procedure to count for a given number of epochs to start periode evaluation
+# should go together with a fileevent counter on the t1 log pipe
+proc t1logactivity {} {
+    global t1logpipe t1logcount firstepoch debugval singlesel
+    gets $t1logpipe a ; # read from stream
+    set b [split $a " \t"] ; # whole string
+    # set debugval [concat [lrange $b 1 end ]]
+    if {$t1logcount == 0} { set firstepoch [lindex $b 0] }
+    incr t1logcount
+    # do singles logging
+    if {$singlesel == 2} {dolog2 [concat [lrange $b 1 end ]]}
+}
+proc periodefind2a {} {
+    global firstreceivedepoch receivenotehandle dataroot
+    # open pipe for generation commands
+    set receivenotehandle [open $dataroot/cmdpipe r+]
+
+    set firstreceivedepoch "x" ; # initiate periode finding
+    fileevent $receivenotehandle readable receivelogactivity2
+    periodefind2 ; # initiate main routine
+}
+
+# start periode finding and switch to correlation streaming
+proc periodefind2 {} {
+    global dataroot programroot firstepoch t1logcount 
+    global periodecount timedifference costreampid costreamhandle
+    global locstat debugval receivenotehandle sigshort siglong
+    global rmtcoinctime trackwindow tracktime akfbufferorder
+    global costreamhistoopt costreamhistonum firstreceivedepoch
+    global ldetnum receivenotehandle
+    global timedifference2
+
+    if {$costreampid !=0 } return ; #is already running
+
+    set locstat "acquire events"
+
+    # wait for late file delivery?
+    if {$t1logcount < $periodecount } {
+	after 1000 periodefind2 
+	set debugval "h1b,$t1logcount,$periodecount" ; update
+	return
+    }
+    # check availability of files form both sides
+    if {$firstreceivedepoch eq "x"} {
+	set debugval "no remote files recieved." ; update
+	emergencyshutdown
+	return
+    }
+    # prepare epoch parameter for pfind to allow good start
+    if {$firstepoch eq "x" } {
+	set debugval "no first t1 file." ; update
+	emergencyshutdown
+	return
+    }
+    set beginepoch 0x$firstepoch ; # epoch to start pfind with
+    set useperiods [expr $periodecount - 2 ] ; # epochs to use for pfind
+    set ldiff [expr 0x$firstreceivedepoch - 0x$firstepoch  ]
+    
+    set userperiods [expr $useperiods - $ldiff]
+    if { $ldiff>0 } { ; # reduce number of periods and use first start
+	incr beginepoch $ldiff
+	set userperiods [expr $useperiods - $ldiff ]
+    }
+
+    set debugval "h2 f: $firstepoch" ; update
+    # ready to find periode
+    set locstat "finding delta t" ; update
+    exec usleep 100000
+    set aa [catch {exec $programroot/pfind -d $dataroot/t2 -D $dataroot/t1 -e $beginepoch -n $useperiods -V 1 -q $akfbufferorder 2>>$dataroot/pfinderror} a]
+    if {$aa !=0 } {
+	set debugval "pffail diff: $ldiff"
+	emergencyshutdown
+	return
+    }
+    set timedifference [lindex $a 0]
+    set timedifference2 [expr ($timedifference / 8000)/1000.]
+    # save synchronization patterns
+    set gg [exec date +%s]
+    exec echo $timedifference $gg >> timerec
+
+    set siglong [expr int([lindex $a 1]*100)/100.]
+    set sigshort [expr int([lindex $a 2]*100)/100.]
+
+    # ready to start the key generation
+    set proto 0
+
+    # set up costream log handle
+    set costreamhandle [open $dataroot/genlog r+]
+    fileevent $costreamhandle readable costreamlogactivity
+    
+
+    fileevent $receivenotehandle readable receivelogactivity2
+
+    set locstat "measuring"
+    set costreampid [exec $programroot/costream -d $dataroot/t2 -D $dataroot/t1 -f $dataroot/rawkey -F $dataroot/t4 -B $dataroot/t5 -e $beginepoch -k -K -t $timedifference -p $proto -T 2 -m $dataroot/rawpacketindex -M $dataroot/t4target -n $dataroot/genlog -V 5 -G 2 -w $rmtcoinctime -u $trackwindow -Q [expr int(-$tracktime)] -R 5 $costreamhistoopt -h $costreamhistonum 2>>$dataroot/costreamerror & ]
+   after 1000 costreamwatchdog
+#set debugval "h5"
+}
+# watchdog for dead costream
+proc costreamwatchdog {} {
+    global costreampid debugval
+    if {[catch {exec ps ho stat $costreampid } a]==0 } {
+	if {$a ne "X" && $a ne "Z" } {
+	    after 1000 costreamwatchdog ; # restart watchdog
+	    return
+	}
+    }
+    emergencyshutdown
+    .m1 configure -bg orange2
+    set debugval "costream died (see COD file)"
+    exec echo $a >costream_COD
+}
+# we receive notes from transferd (here now: just a pipe )
+proc receivelogactivity2 {} { 
+    global receivenotehandle recepoch
+    global firstreceivedepoch
+    if {![eof $receivenotehandle]} {
+	gets $receivenotehandle a
+	set recepoch $a
+	if { $firstreceivedepoch eq "x"} {set firstreceivedepoch $a }
+    }
+}
+
+#procedure to capture output from costream
+proc costreamlogactivity {} {
+    global dataroot costreamhandle statstring
+    global costreamglogmode costreamglogfile
+    global Mdeltat Moutepoch Maccidentals Mcoincidences
+    global Msentevents Mrawevents
+    global dataroot rawcleanoption programroot
+    if {![eof $costreamhandle]} {
+	gets $costreamhandle a
+	set b [split $a " \t"]
+	set statstring [join $b ":"]
+	set Moutepoch [lindex $b 0] ; # current epoch
+	set Mrawevents [lindex $b 1]
+	set Msentevents [lindex $b 2]
+	set Mcompress1 [lindex $b 3]
+	set Mdeltat [expr int(10*[lindex $b 4]/8.0)/10.0] ; # servoed time difference in nsec
+	set Maccidentals [lindex $b 5]
+	set Mcoincidences [lindex $b 6] ; # true coincidences
+        dolog1 $Moutepoch ; # monitoring
+	if { $costreamglogmode } { ; # save stuff in file
+	    exec echo "$a" >> $costreamglogfile
+	}
+	# some Bell analysis
+	# set eret [catch {exec $programroot/digest_t5  -d $dataroot/t5 -e 0x$epoch -n $epnum } retval ]
+	
+	# set BellDigest [lindex $retval 16]
+	# set BellDigestErr [lindex $retval 17]
+	# preemtive cleaning of t3, t4, t5, rawkey files
+	if {$rawcleanoption} {
+	    foreach dir {t3 t4 t5 rawkey} {exec rm $dataroot/$dir/$Moutepoch }
+	}
+    } else {
+	set Moutepoch "***************"
+    }
+}
+
+# procedure to shut down streaming on side 2
+proc stopcapture2 {} {
+    global costreamhandle costreampid locstat receivenotehandle
+    after cancel  costreamwatchdog ; # switch off watchdog
+    catch {close $costreamhandle}
+    if {$costreampid !=0 } { 
+	catch {exec kill $costreampid }
+	set costreampid 0
+    }
+    catch {close $receivenotehandle}
+    set locstat "Idle"
+}
+
+#procedure to handle emergengy shutdown
+proc emergencyshutdown {} {
+    global costreampid
+    
+    disableinputpart1
+    shutdowninputpart1
+    
+    disableinputpart2
+    shutdowninputpart2
+    stopcapture2
+	
+    set running 0
+    set costreampid 0
+    .m4.3.f0.b12a configure -state normal
+    .m4.3.f0.b12b configure -state normal
+
+}
+
+proc startrawkeygen {} { #initiating raw key generation
+    global t1logcount running 
+    global firstepoch firstreceivedepoch col1
+    .m1 configure -bg $col1
+    if {$running == 1} { return }
+
+    set firstreceivedepoch "x" ; set firstepoch "x"
+    set t1logcount 0
+
+    set running 1
+    .m4.3.f0.b12a configure -state disabled
+    .m4.3.f0.b12b configure -state disabled
+    
+    startinputpart1
+    startinputpart2
+    exec usleep 500000 ; # this is necessay, don't know why
+    enableinputpart1
+    enableinputpart2
+    periodefind2a
+
+}
+proc stoprawkeygen {} { #initialize shutdown
+    global running
+    if {$running == 0} { return }
+    disableinputpart1 
+    disableinputpart2
+
+    stopcapture2
+
+    shutdowninputpart1 
+    shutdowninputpart2
+
+    set running 0
+    .m4.3.f0.b12a configure -state normal
+    .m4.3.f0.b12b configure -state normal
+
+}
+
+proc removerawkeys {} {
+    global dataroot
+    set fl [glob -nocomplain $dataroot/rawkey/* ]
+    foreach f $fl {file delete $f}
+    set fl [glob -nocomplain $dataroot/t5/* ]
+    foreach f $fl {file delete $f}
+
+}
+proc removefinalkeys {} {
+    global dataroot totalfinalbits
+    set fl [glob -nocomplain $dataroot/finalkey/* ]
+    foreach f $fl {file delete $f}
+    set totalfinalbits 0
+}
+# procedure to start single counting locally; not statusproof yet
+proc startsinglecount {} {
+    global programroot debugval dataroot rawdummyhandle
+    global counterpid counterpid2 timestamp1device timestamp2device
+    global counterpipe counterpipe2 readerpid readerpid2
+    global locstat running
+    if {$running != 0} { return }
+    set running -1
+    .m4.3.f0.b10 configure -state disabled
+    .m4.3.f0.b10a configure -state disabled
+    set locstat "bare counting"
+    
+    # prevent stress with rawevents:
+    # set rawdummyhandle [open $dataroot/rawevents r+]
+
+    # open countlogpipe
+    set counterpipe [open $dataroot/cntlogpipe r+]
+    set counterpipe2 [open $dataroot/cntlogpipe2 r+]
+
+
+    # remove old counter files
+    # install handler procedure
+    fileevent $counterpipe readable counterlogging
+    fileevent $counterpipe2 readable counterlogging2
+    
+
+    # start readevents / counterchain; modified to cater for 6 detectors
+    set counterpid [exec $programroot/getrate2 -i $dataroot/rawevents  -n 0 -6  > $dataroot/cntlogpipe & ]
+    set readerpid [exec $programroot/readevents -a 1 -A -e -S 20 -F -U $timestamp1device > $dataroot/rawevents 2>/dev/null & ]
+
+    set counterpid2 [exec $programroot/getrate2 -i $dataroot/rawevents2  -n 0 -6  > $dataroot/cntlogpipe2 & ]
+    set readerpid2 [exec $programroot/readevents -a 1 -A -e -S 20 -F -U $timestamp2device > $dataroot/rawevents2 2>/dev/null & ]
+}
+
+
+proc stopsinglecount {} {
+    global readerpid readerpid2 counterpid counterpid2
+    global counterpipe counterpipe2 
+    global locstat running 
+
+    if {$counterpid != 0} { catch {exec kill $counterpid}}
+    if {$readerpid != 0} { catch {exec kill -SIGHUP $readerpid}}
+    if {$counterpid2 != 0} { catch {exec kill $counterpid2}}
+    if {$readerpid2 != 0} { catch {exec kill -SIGHUP $readerpid2}}
+    
+    set counterpid 0 ; set readerpid 0 ; set counterpid2 0 ; set readerpid2 0
+    catch { close $counterpipe }; catch { close $counterpipe2 }
+    
+
+    set locstat "Idle"
+    set running 0
+    .m4.3.f0.b10 configure -state normal
+    .m4.3.f0.b10a configure -state normal
+
+}
+proc counterlogging {} {
+    global counterpipe singlesel
+    gets $counterpipe result
+    if {$singlesel == 1} { dolog2 $result }
+}
+proc counterlogging2 {} {
+    global counterpipe2  singlesel
+    gets $counterpipe2 result
+    if {$singlesel == 2} { dolog2 $result }
+}
+
+
+
+#---------------------------------------------------------------------
+#   GUI management
+
+# geometry part
+grid columnconfigure . 0 -minsize 80
+grid rowconfigure . 1 -minsize 300
+grid rowconfigure . 0 -minsize 50
+
+# Da colors...
+set col1 #8080ff ; # logo background etc
+set col2 #c0c0c0 ; # side background
+
+set col3 #f8c0c0 ; # red Button for stop
+set col3h #ffc0c0 ; # red button highlight
+set col4 #c0f8c0 ; # green button for start
+set col4h #c0ffc0 ; # green hl
+set col5 #a0a0f8 ; # blue button for quit
+set col5h #a0a0ff ; # blue hl
+set col6 #f8f8c0 ; # reset button
+set col6h #ffffc0 ; # reset button hl
+
+
+
+# da fonts
+set BIG "-*-*-*-*-*-*-24-*-*-*-*-*-*-*"
+# master grid
+frame .m1 -bg $col1  ; # contains upper leftcorner
+frame .m2  -bg $col1; # contains tabs
+frame .m3 -height 300 -padx 3; # status bar
+frame .m4 -height 300 ; # main part
+grid .m1 .m2  -row 0 -sticky nsew
+grid .m3 .m4 -row 1 -sticky nsew
+
+#logo corner
+label .m1.t2 -text "Bell Challenge" -bg $col1 -font $BIG
+grid anchor .m1 center
+grid .m1.t2 
+# pack .m1.t2
+
+# prepare tabs
+frame .m2.1 -bg $col1 -padx 6
+set pcolor \#b0b0b0 ; # background color for passive cells
+label .m2.1.t1 -text main -width 15 ; # tab1
+label .m2.1.t2 -text Settings -width 15 ; # tab2 
+label .m2.1.t3 -text Measurement -width 15 ; # tab3 
+label .m2.1.t4 -text Maintenance 
+for { set i 1 } {$i < 5} {incr i} { 
+    .m2.1.t$i configure -bg $pcolor -state normal }
+
+grid .m2.1.t3 .m2.1.t2 .m2.1.t4 -sticky w
+for {set i 0} { $i < 3 } {incr i} {grid columnconfigure .m2.1 $i -minsize 150}
+pack .m2.1 -side bottom -anchor w
+
+# status bar on the left side
+# label .m3.t1 -text "Status:"
+
+label .m3.t2  -textvariable currenttab -width 2 -foreground blue
+label .m3.tdebug -text "debugval:"
+label .m3.rdeb -textvariable debugval -width 20
+
+label .m3.t12 -text "Activity:"
+label .m3.t12a -textvariable locstat -width 15 -anchor w
+label .m3.t12b -text "" -anchor w
+label .m3.t13 -text "Time track"
+label .m3.t13a -textvariable Mdeltat -width 7 -anchor e
+label .m3.t13b -text "ns" -anchor w
+label .m3.t14 -text "Accid. coinc.:"
+label .m3.t14a -textvariable Maccidentals -width 7 -anchor e
+label .m3.t14b -text "/ epoch" -anchor w
+label .m3.t15 -text "Coincidences:"
+label .m3.t15a -textvariable Mcoincidences -width 7 -anchor e
+label .m3.t15b -text "/ epoch" -anchor w
+label .m3.t16 -text "Current epoch:"
+label .m3.t16a -textvariable Moutepoch -width 7
+label .m3.t16b -text "" -anchor w
+label .m3.t18 -text "Epoch count:"
+label .m3.t18a -textvariable t1logcount -width 7 -anchor e
+label .m3.t18b -text "" -anchor w
+label .m3.t19 -text "First epoch:"
+label .m3.t19a -textvariable firstepoch -width 7
+label .m3.t19b -text "" -anchor w
+label .m3.t20 -text "rec epoch:"
+label .m3.t20a -textvariable recepoch -width 7
+label .m3.t20b -text "" -anchor w
+label .m3.t21 -text "Initial time diff:"
+label .m3.t21a -textvariable timedifference2 -width 7 -anchor e
+label .m3.t21b -text "ms" -anchor w
+label .m3.t22 -text "Long match:"
+label .m3.t22a -textvariable siglong -width 7 -anchor e
+label .m3.t22b -text "sigma" -anchor w
+label .m3.t23 -text "Short match:"
+label .m3.t23a -textvariable sigshort -width 7 -anchor e
+label .m3.t23b -text "sigma" -anchor w
+
+# Bell stuff
+label .m3.t24 -text "Bell value:" -font $BIG 
+label .m3.t24a -textvariable BellText -width 14 -font $BIG 
+label .m3.t24p
+label .m3.t25p 
+
+label .m3.t25 -text "Maximal" -font $BIG -fg red 
+label .m3.t25a -text "violation:" -font $BIG -fg red
+label .m3.t25b -textvariable BellTextMax -width 14 -font $BIG -fg red 
+
+proc BellReset {} {
+    global BellValMax BellTextMax
+    set BellValMax 2.0
+    set BellTextMax -
+}
+
+# grid .m3.t1 -columnspan 2 -pady 2
+
+# grid .m3.tdebug  -sticky w ; grid .m3.rdeb -columnspan 2 -sticky w
+
+grid .m3.t12 .m3.t12a - -sticky w 
+foreach i {13 15 14 18 21 22 23} {
+    grid .m3.t$i .m3.t${i}a .m3.t${i}b -sticky w
+}
+grid .m3.t24p -pady 20
+grid .m3.t24  - - -sticky s 
+grid .m3.t24a - - -sticky n
+grid .m3.t25p -pady 20
+grid .m3.t25  - - -sticky n
+grid .m3.t25a - - -
+grid .m3.t25b - - -sticky s
+
+
+# tab 1
+frame .m4.1
+label .m4.1.t -text "Main operations"
+
+grid .m4.1.t -pady 5 -sticky nsew
+
+# tab 2
+frame .m4.2 
+label .m4.2.t1 -text "Local properties"
+label .m4.2.t2 -text "data directory root:"
+entry .m4.2.e1 -textvariable dataroot
+button .m4.2.b1 -text "prepare directories" -command makedirectories -padx 10
+label .m4.2.t3 -text "program root:"
+entry .m4.2.e2 -textvariable programroot
+#label .m4.2.t8 -text "local detector number:"
+#frame .m4.2.f9 ; # for radiobuttons
+#radiobutton .m4.2.f9.rb1 -text 4 -variable ldetnum -value 4
+#radiobutton .m4.2.f9.rb2 -text 6 -variable ldetnum -value 6
+#grid .m4.2.f9.rb1 .m4.2.f9.rb2
+
+label .m4.2.t30 -text "Coincidence detection"
+label .m4.2.t31 -text "coincidence window"
+entry .m4.2.e31a -textvariable rmtcoinctime
+label .m4.2.t31b -text "x 1/8 nsec"
+label .m4.2.t32 -text "tracking window"
+entry .m4.2.e32a -textvariable trackwindow
+label .m4.2.t32b -text "x 1/8 nsec"
+label .m4.2.t33 -text "track filter time const"
+entry .m4.2.e33a -textvariable tracktime
+label .m4.2.t33b -text "microseconds"
+label .m4.2.t34 -text "initial AKF length"
+entry .m4.2.e34a -textvariable periodecount
+label .m4.2.t34b -text "epochs"
+label .m4.2.t35 -text "AKF buffer order"
+entry .m4.2.e35a -textvariable akfbufferorder
+label .m4.2.t35b -text "bits"
+
+# detector skew correction settings
+proc updetc {} {
+    global detcorrmode detcorrection  detcval
+    if { $detcorrmode == 0 } {
+	for {set i 0} {$i < 4 } {incr i} {
+	    .m4.2.f42.t$i configure -state disabled
+	    .m4.2.f42.e$i configure -state disabled
+	}
+	.m4.2.f42.l2 configure -state disabled
+	set detcorrection ""
+    } else {
+	for {set i 0} {$i < 4 } {incr i} {
+	    .m4.2.f42.t$i configure -state normal
+	    .m4.2.f42.e$i configure -state normal
+	}
+	.m4.2.f42.l2 configure -state normal
+
+	set detcorrection "-D $detcval(0),$detcval(1),$detcval(2),$detcval(3),$detcval(4),$detcval(5)"
+    }	
+}
+label .m4.2.t40 -text "Local detetor skew correction"
+frame .m4.2.f41
+radiobutton .m4.2.f41.rb1 -text "off" -variable detcorrmode -value 0 -command updetc
+radiobutton .m4.2.f41.rb2 -text "on" -variable detcorrmode -value 1 -command updetc
+grid  .m4.2.f41.rb1 .m4.2.f41.rb2
+frame .m4.2.f42
+for {set i 0} {$i < 4} {incr i} {
+    label .m4.2.f42.t$i -text "det[expr $i+1]:"
+    entry .m4.2.f42.e$i -textvariable detcval($i) -width 3
+    bind .m4.2.f42.e$i <Return> updetc
+}
+label .m4.2.f42.l2 -text "x 1/8 nsec"
+grid .m4.2.f42.t0 .m4.2.f42.e0 .m4.2.f42.t1 .m4.2.f42.e1 \
+.m4.2.f42.t2 .m4.2.f42.e2 .m4.2.f42.t3 .m4.2.f42.e3  .m4.2.f42.l2 -sticky w
+#grid .m4.2.f42.t4 .m4.2.f42.e4 .m4.2.f42.t5 .m4.2.f42.e5 .m4.2.f42.l2 -sticky w
+updetc
+
+# maximum time difference settings
+label .m4.2.t50 -text "Other settings"
+label .m4.2.t51 -text "max. event time pause"
+entry .m4.2.e51a -textvariable maxeventdiff
+label .m4.2.t51b -text "microseconds"
+
+# logging options
+label .m4.2.t60 -text "logging options"
+label .m4.2.t61 -text "costream general log"
+frame .m4.2.f61a
+radiobutton .m4.2.f61a.rb1 -text "off" -variable costreamglogmode -value 0
+radiobutton .m4.2.f61a.rb2 -text "on" -variable costreamglogmode -value 1
+grid .m4.2.f61a.rb1 .m4.2.f61a.rb2 -sticky w
+
+# cleanup option
+label .m4.2.t70 -text "cleanup options"
+label .m4.2.t71 -text "t3/t4/t5/rawkey autoclean"
+frame .m4.2.f71a
+radiobutton .m4.2.f71a.rb1 -text "off" -variable rawcleanoption -value 0
+radiobutton .m4.2.f71a.rb2 -text "on" -variable rawcleanoption -value 1
+grid .m4.2.f71a.rb1 .m4.2.f71a.rb2 -sticky w
+
+grid .m4.2.t1 -columnspan 4 -pady 5 -sticky w
+grid .m4.2.t2 .m4.2.e1 .m4.2.b1 -sticky w ; # directory root
+grid .m4.2.t3 .m4.2.e2 -sticky w
+#grid .m4.2.t8 .m4.2.f9 -sticky w
+grid .m4.2.t30 -columnspan 4 -pady 5 -sticky w
+grid .m4.2.t31 .m4.2.e31a .m4.2.t31b -sticky w
+grid .m4.2.t32 .m4.2.e32a .m4.2.t32b -sticky w
+grid .m4.2.t33 .m4.2.e33a .m4.2.t33b -sticky w
+grid .m4.2.t34 .m4.2.e34a .m4.2.t34b -sticky w
+grid .m4.2.t35 .m4.2.e35a .m4.2.t35b -sticky w
+grid .m4.2.t40 -columnspan 4 -pady 5 -sticky w ; # hesader for det skew
+grid .m4.2.f41 .m4.2.f42 - -sticky w
+grid .m4.2.t50 -columnspan 4 -pady 5 -sticky w ; # header for prot settings
+grid .m4.2.t51 .m4.2.e51a .m4.2.t51b -sticky w
+grid .m4.2.t60 -columnspan 4 -pady 5 -sticky w ; # header for logging section
+grid .m4.2.t61 .m4.2.f61a  -sticky w
+grid .m4.2.t70 -columnspan 4 -pady 5 -sticky w ; # header for logging section
+grid .m4.2.t71 .m4.2.f71a  -sticky w
+
+
+
+# tab 3 monitoring of coincidences
+set plotelems 0 ; # defauld display option
+proc upgs { } { # update gnuplot control file
+    global mdisp1 cbasel cbcsel dataroot
+    global gnucontrol gnucanvas diagdatafile
+    global diagdatafile2 costreamhistoopt costreamhistonum
+    global diagdatafile3 sisel plotelems ldetnum
+    exec echo "set terminal tkcanvas ; set output \"$gnucanvas\"" >$gnucontrol
+    exec echo "set yrange \[-.1:*\]" >> $gnucontrol
+    set plotelems 0 ; # counts number of elements to display
+    set outstring "plot \'$diagdatafile\' "
+    set costreamhistoopt "" ; # for cases 1-3
+        switch $mdisp1 {
+	1 { # rates: display collective info
+	    for {set i 1 } {$i < 4} {incr i } {
+		if {$cbasel($i) == 1 } {
+		    if {$plotelems > 0} { append outstring {, '' } }
+		    append outstring "using [expr $i+24] not w l lt $i" 
+		    set plotelems 1
+		}
+	    }
+	}
+	2 { # QUBER
+	    exec echo "set yrange \[0:*\]" >> $gnucontrol
+	    append outstring {using 0:(($17+$23)/($17+$23+$19+$21)) not w l lt 1 }
+	    set plotelems 1
+	}
+	3 { # coincicences
+	    for {set i 0 } {$i < 16} {incr i } {
+		if { $cbcsel($i) == 1 } { 
+		    if {$plotelems >0} {append outstring {, '' } }
+		    append outstring "using [expr $i+1] not w l lt $i " 
+		    set plotelems 1
+		}
+	    }
+	}
+	4 { # TIMING HISTOGRAMS
+	    set costreamhistoopt "-H $dataroot/histos/tfli"
+	    exec echo "set terminal tkcanvas ; set output \"$gnucanvas\"" >$gnucontrol
+	    exec echo "set xrange \[-10:10\] " >> $gnucontrol
+	    set outstring "plot \'$diagdatafile2\' "
+	    set gg {2 3 4 5 6 10 14 18 22} ; # column numbers in histogram
+	    set commt {"R1-L1" "R1-L2" "R1-L3" "R1-L4" "R2-L1" "R3-L1" "R4-L1"\
+"R5-L1" "R6-L1"}
+	    for {set i 0 } {$i < 9 } {incr i } {
+		if {$plotelems > 0} { append outstring {, '' } }
+		append outstring "using (\$1/8):[lindex $gg $i] title \"[lindex $commt $i]\" w l lt $i " 
+		set plotelems 1
+	    }
+	    
+	}
+	5 { # SINGLES
+	    set outstring "plot \'$diagdatafile3\' "
+	    for {set i 0 } {$i < ($ldetnum+1)} {incr i } {
+		if {$sisel($i) == 1 } {
+		    if {$plotelems > 0} { append outstring {, '' } }
+		    if {$i == 0} {set tit \"sum\"
+		    } else { set tit "\"det $i\"" }
+		    # colors: sum blk, d1: green, d2: red, d3: yel/bn, d4: blue
+		    # colors of det5, det 6:  ?, ?
+		    set j [lindex { 7 3 1 4 2 5 6 } $i]
+		    append outstring "using [expr $i+1] title $tit w l lt $j" 
+		    set plotelems 1
+		}
+	    }
+	}
+	6 { # Bell violation 
+	    exec echo "set yrange \[-3:3\]" >> $gnucontrol
+	    append outstring {using 0:(($1+$11-$3-$9)/($1+$11+$3+$9)-($2+$12-$4-$10)/($2+$12+$4+$10)+ ($5+$15-$7-$13)/($5+$15+$7+$13)+($6+$16-$8-$14)/($6+$16+$8+$14)):(2*sqrt(($1+$11)*($3+$9)/($1+$11+$3+$9)**3+($2+$12)*($4+$10)/($2+$12+$4+$10)**3+($5+$15)*($7+$13)/($5+$15+$7+$13)**3+($6+$16)*($8+$14)/($6+$16+$8+$14)**3)) not w errorbars lw 4 ,'' using 0:(2.0) not w l lt 4 lw 4, '' using 0:(-2.0) not w l lt 4 lw 4}
+	    set plotelems 1
+	}
+	7 { # Bell violation  hires plus
+	    exec echo "set yrange \[2:3\]" >> $gnucontrol
+	    append outstring {using 0:(($1+$11-$3-$9)/($1+$11+$3+$9)-($2+$12-$4-$10)/($2+$12+$4+$10)+ ($5+$15-$7-$13)/($5+$15+$7+$13)+($6+$16-$8-$14)/($6+$16+$8+$14)):(2*sqrt(($1+$11)*($3+$9)/($1+$11+$3+$9)**3+($2+$12)*($4+$10)/($2+$12+$4+$10)**3+($5+$15)*($7+$13)/($5+$15+$7+$13)**3+($6+$16)*($8+$14)/($6+$16+$8+$14)**3)) not w errorbars lw 4,'' using 0:(2.0) not w l lt 4 lw 4, '' using 0:(2*sqrt(2)) not w l lt 5 lw 4}
+	    set plotelems 1
+	}
+	8 { # Bell violation  hires plus
+	    exec echo "set yrange \[-3:-2\]" >> $gnucontrol
+	    append outstring {using 0:(($1+$11-$3-$9)/($1+$11+$3+$9)-($2+$12-$4-$10)/($2+$12+$4+$10)+ ($5+$15-$7-$13)/($5+$15+$7+$13)+($6+$16-$8-$14)/($6+$16+$8+$14)):(2*sqrt(($1+$11)*($3+$9)/($1+$11+$3+$9)**3+($2+$12)*($4+$10)/($2+$12+$4+$10)**3+($5+$15)*($7+$13)/($5+$15+$7+$13)**3+($6+$16)*($8+$14)/($6+$16+$8+$14)**3)) not w errorbars lw 4,'' using 0:(-2.0) not w l lt 4 lw 4, '' using 0:(-2*sqrt(2)) not w l lt 5 lw 4}
+	    set plotelems 1
+	}
+
+    }
+
+    # print out if there is something
+    if {$plotelems >0} { exec echo $outstring >>$gnucontrol }
+}
+
+# logging data in service mode; checks mode and displays the last few entries
+set ulogcnt 0
+proc dolog1 {epoch} {
+    global gnucanvas diagdatafile gnucontrol programroot dataroot
+    global currenttab diagdatafileold ulogcnt diagdatafile2
+    global mdisp1 plotelems diaglogfile
+    global Maccidetals Mrawevents Mcoincidences Msentevents
+    global ldetnum negotiatemode BellError BellValue BellText
+    global BellValMax BellTextMax
+    exec echo "logcall, tab: $currenttab, number: $ulogcnt" > $dataroot/tilog
+    
+    set diagreverse "-s"
+    
+    # take diag file
+    exec usleep 10000
+    set eret [catch {exec $programroot/diagnosis -q $diagreverse -f $dataroot/rawkey/$epoch  } eret2 ]
+    
+
+    # extract epoch in decimal
+    set decepoch [expr 0x$epoch]
+    exec echo "$eret2 $decepoch $epoch" >> $diaglogfile
+
+    if {($currenttab != 3) } { return 0 }; # no monitor window on
+
+    exec echo $eret2 >> $diagdatafile
+
+    # determine Bell values for direct display
+    for {set i 1} {$i< 17} {incr i} {
+	set xc$i [expr 0.0+[lindex $eret2 [expr $i-1]]]}
+    set n1 [expr $xc1+$xc11+$xc3+$xc9] ; set n2 [expr $xc2+$xc12+$xc4+$xc10]
+    set n3 [expr $xc5+$xc15+$xc7+$xc13] ; set n4 [expr $xc6+$xc16+$xc8+$xc14]
+    if {[expr $n1*$n2*$n3*$n4] == 0} {
+	set BellText  "undefined"
+    } else {
+	set BellValue [expr ($xc1+$xc11-$xc3-$xc9)/$n1 \
+			   -($xc2+$xc12-$xc4-$xc10)/$n2 \
+			   + ($xc5+$xc15-$xc7-$xc13)/$n3 \
+			   +($xc6+$xc16-$xc8-$xc14)/$n4 ]
+	set BellError [expr 2*sqrt(($xc1+$xc11)*($xc3+$xc9)/$n1**3 \
+				       +($xc2+$xc12)*($xc4+$xc10)/$n2**3\
+				       +($xc5+$xc15)*($xc7+$xc13)/$n3**3\
+				       +($xc6+$xc16)*($xc8+$xc14)/$n4**3)]
+	# do proper rounding
+	set BellValue [expr int($BellValue*100)/100.]
+	set BellError [expr int($BellError*100)/100.]
+	
+	set BellText "S = $BellValue +/- $BellError"
+	
+	if {[expr abs($BellValue)] > $BellValMax} {
+	    set BellValMax [expr abs($BellValue)]
+	    set BellTextMax $BellText
+	}
+    }
+
+    incr ulogcnt 
+    exec echo "$eret, $eret2; cnt: $ulogcnt" >> $dataroot/tilog
+    if { $mdisp1 <4 || ( $mdisp1 >= 6 && $mdisp1 <= 8)} {
+	if {$ulogcnt > 0 && $eret == 0 } { # no eror in appending
+	    exec mv $diagdatafile $diagdatafileold
+	    exec tail $diagdatafileold >$diagdatafile
+	    if { $plotelems >0 } {
+		catch {exec gnuplot $gnucontrol }
+		source $gnucanvas ; # load canvas source 
+		gnuplot .m4.3.cv ; # update canvas
+	    }
+	}
+    } elseif { $mdisp1 == 4 } { # timing histogram display
+	set fli [ glob $dataroot/histos/tfli* ] ; # get all time histo files
+	set mti 0 ; # modification time
+	foreach fl $fli {
+	    if {[set t [file mtime $fl]]>$mti} {
+		set mti $t
+		set dfile $fl
+	    }
+	}
+	if {$mti >0} {
+	    if { [ file exists $diagdatafile2 ]} { exec rm $diagdatafile2 }
+	    exec ln -s $dfile $diagdatafile2
+	    catch {exec gnuplot $gnucontrol }
+	    source $gnucanvas ; # load canvas source 
+	    gnuplot .m4.3.cv ; # update canvas
+	}
+    }
+}
+
+# for logging singles
+set ulogcnt3 0
+proc dolog2 {values} {
+    global gnucanvas diagdatafile3 gnucontrol programroot dataroot
+    global currenttab diagdatafile3old ulogcnt3 
+    global mdisp1 plotelems
+
+    if {($currenttab != 3)} { return 0 } ; # no logging
+    if { $mdisp1 == 5 } {
+	exec echo $values >>$diagdatafile3
+	incr ulogcnt3
+	if {$ulogcnt3 > 0  } { # no eror in appending
+	    exec mv $diagdatafile3 $diagdatafile3old
+	    exec tail $diagdatafile3old >$diagdatafile3
+	    if {$plotelems >0 } {
+		catch {exec gnuplot $gnucontrol }
+		source $gnucanvas ; # load canvas source 
+		gnuplot .m4.3.cv ; # update canvas
+	    }
+	}
+    } 
+}
+
+
+
+set mdisp1 6 ; # choose rates
+for {set i 1 } { $i < 4} { incr i } { set cbasel($i) 0} ; # all rates off
+for {set i 0 } { $i < 24} { incr i } { set cbcsel($i) 0} ; # all rates off
+for {set i 0 } { $i < 5 } { incr i } { set sisel($i) 0 } ; #all rates off
+set cbasel(1) 1 ; set cbcsel(1) 1 ; set sisel(0) 1 ;# have some set
+
+frame .m4.3 
+
+# header and single buttons
+frame .m4.3.f0
+label .m4.3.f0.t1 -text "Measurement: "
+button .m4.3.f0.b12a -text "Start" -command \
+    { set mdisp1 5 ; upgs ; startsinglecount } \
+    -bg $col4 -activebackground $col4h
+button .m4.3.f0.b12b -text "Stop" -command stopsinglecount \
+    -bg $col3 -activebackground $col3h
+label .m4.3.f0.t2 -text "Bare counting:"
+button .m4.3.f0.b10 -text "Start accquisition" -command { 
+    BellReset ; startrawkeygen } -bg $col4 -activebackground $col4h
+button .m4.3.f0.b10a -text "Stop accquisition" -command stoprawkeygen \
+-bg $col3 -activebackground $col3h
+button .m4.3.f0.b10b -text "Reset Bell value" -command {
+    set BellTextMax "-" } \
+-bg $col6 -activebackground $col6h
+
+
+pack .m4.3.f0.b10 .m4.3.f0.b10a .m4.3.f0.b10b -side left
+pack .m4.3.f0.b12b .m4.3.f0.b12a .m4.3.f0.t2 -side right
+
+radiobutton .m4.3.rba -text "Detected coincidences" -variable mdisp1 -value 1 -command upgs
+
+frame .m4.3.cc
+checkbutton .m4.3.cc.cba1 -text "Total pairs" -variable cbasel(1) -command upgs
+checkbutton .m4.3.cc.cba2 -text "Good pairs" -variable cbasel(2) -command upgs
+checkbutton .m4.3.cc.cba3 -text "Double clicks side 1" -variable cbasel(3) -command upgs
+checkbutton .m4.3.cc.cba4 -text "Double clicks side 2" -variable cbasel(4) -command upgs
+grid .m4.3.cc.cba1 -sticky w ; grid .m4.3.cc.cba2 -sticky w
+grid .m4.3.cc.cba3 -sticky w ; grid .m4.3.cc.cba4 -sticky w
+
+radiobutton .m4.3.rbb -text "QBER" -variable mdisp1 -value 2 -command upgs
+
+radiobutton .m4.3.rbc -text "Individual coincidences" -variable mdisp1 -value 3 -command upgs
+frame .m4.3.cb
+checkbutton .m4.3.cb.c0 -text "VV" -variable cbcsel(0)  -command upgs
+checkbutton .m4.3.cb.c1 -text "V-" -variable cbcsel(1) -command upgs
+checkbutton .m4.3.cb.c2 -text "VH" -variable cbcsel(2) -command upgs
+checkbutton .m4.3.cb.c3 -text "V+" -variable cbcsel(3) -command upgs
+checkbutton .m4.3.cb.c4 -text "-V" -variable cbcsel(4) -command upgs
+checkbutton .m4.3.cb.c5 -text "--" -variable cbcsel(5) -command upgs
+checkbutton .m4.3.cb.c6 -text "-H" -variable cbcsel(6) -command upgs
+checkbutton .m4.3.cb.c7 -text "-+" -variable cbcsel(7) -command upgs
+checkbutton .m4.3.cb.c8 -text "HV" -variable cbcsel(8) -command upgs
+checkbutton .m4.3.cb.c9 -text "H-" -variable cbcsel(9) -command upgs
+checkbutton .m4.3.cb.c10 -text "HH" -variable cbcsel(10) -command upgs
+checkbutton .m4.3.cb.c11 -text "H+" -variable cbcsel(11) -command upgs
+checkbutton .m4.3.cb.c12 -text "+V" -variable cbcsel(12) -command upgs
+checkbutton .m4.3.cb.c13 -text "+-" -variable cbcsel(13) -command upgs
+checkbutton .m4.3.cb.c14 -text "+H" -variable cbcsel(14) -command upgs
+checkbutton .m4.3.cb.c15 -text "++" -variable cbcsel(15) -command upgs
+#checkbutton .m4.3.cb.c16 -text "KV" -variable cbcsel(16) -command upgs
+#checkbutton .m4.3.cb.c17 -text "K-" -variable cbcsel(17) -command upgs
+#checkbutton .m4.3.cb.c18 -text "KH" -variable cbcsel(18) -command upgs
+#checkbutton .m4.3.cb.c19 -text "K+" -variable cbcsel(19) -command upgs
+#checkbutton .m4.3.cb.c20 -text "LV" -variable cbcsel(20) -command upgs
+#checkbutton .m4.3.cb.c21 -text "L-" -variable cbcsel(21) -command upgs
+#checkbutton .m4.3.cb.c22 -text "LH" -variable cbcsel(22) -command upgs
+#checkbutton .m4.3.cb.c23 -text "L+" -variable cbcsel(23) -command upgs
+
+grid .m4.3.cb.c0 .m4.3.cb.c1 .m4.3.cb.c2 .m4.3.cb.c3 -sticky w
+grid .m4.3.cb.c4 .m4.3.cb.c5 .m4.3.cb.c6 .m4.3.cb.c7 -sticky w
+grid .m4.3.cb.c8 .m4.3.cb.c9 .m4.3.cb.c10 .m4.3.cb.c11 -sticky w
+grid .m4.3.cb.c12 .m4.3.cb.c13 .m4.3.cb.c14 .m4.3.cb.c15 -sticky w
+#grid .m4.3.cb.c16 .m4.3.cb.c17 .m4.3.cb.c18 .m4.3.cb.c19 -sticky w
+#grid .m4.3.cb.c20 .m4.3.cb.c21 .m4.3.cb.c22 .m4.3.cb.c23 -sticky w
+radiobutton .m4.3.rbd -text "Timing Histogram" -variable mdisp1 -value 4 -command upgs
+
+label .m4.3.padtext -text ""
+frame .m4.3.hi
+label .m4.3.hi.t1 -text "Epochs to sum over:"
+entry .m4.3.hi.e1 -textvariable costreamhistonum -width 3
+grid .m4.3.hi.t1   .m4.3.hi.e1  -sticky w 
+
+# single structure
+radiobutton .m4.3.rbe -text "Single detector events" -variable mdisp1 -value 5 -command upgs
+
+frame .m4.3.si
+checkbutton .m4.3.si.c0 -text "Total" -variable sisel(0) -command upgs
+checkbutton .m4.3.si.c1 -text "Det 1" -variable sisel(1) -command upgs
+checkbutton .m4.3.si.c2 -text "Det 2" -variable sisel(2) -command upgs
+checkbutton .m4.3.si.c3 -text "Det 3" -variable sisel(3) -command upgs
+checkbutton .m4.3.si.c4 -text "Det 4" -variable sisel(4) -command upgs
+checkbutton .m4.3.si.c5 -text "det5" -variable sisel(5) -command upgs
+checkbutton .m4.3.si.c6 -text "det6" -variable sisel(6) -command upgs
+set singlesel 1
+radiobutton .m4.3.si.rb1 -text "Side 1" -variable singlesel \
+ -value 1 -command upgs
+radiobutton .m4.3.si.rb2 -text "Side 2" -variable singlesel \
+ -value 2 -command upgs
+
+grid .m4.3.si.rb1 .m4.3.si.rb2 -sticky w 
+grid .m4.3.si.c0 -sticky w ;
+grid .m4.3.si.c1 .m4.3.si.c2 -sticky w 
+grid .m4.3.si.c3 .m4.3.si.c4 -sticky w
+
+# grid .m4.3.si.c5 -sticky w
+# grid .m4.3.si.c6 -sticky w
+
+# Bell violation button
+radiobutton .m4.3.rbf -text "Bell test" -variable mdisp1 -value 6 \
+    -command upgs 
+frame .m4.3.bt
+radiobutton .m4.3.bt.rbg -text "HR+" -variable mdisp1 -value 7 -command upgs
+radiobutton .m4.3.bt.rbh -text "HR-" -variable mdisp1 -value 8 -command upgs
+grid .m4.3.bt.rbg .m4.3.bt.rbh -sticky w
+
+
+canvas .m4.3.cv -bg white -width 800 -height 500
+
+grid .m4.3.f0 -columnspan 4 -pady 5 -sticky nsew
+grid .m4.3.rba .m4.3.rbc .m4.3.rbf .m4.3.rbe .m4.3.rbf -sticky w
+grid .m4.3.cc -row 2 -rowspan 4 -column 0 -padx 10 -sticky w
+grid .m4.3.cb -row 2 -rowspan 4 -column 1 -padx 10 -sticky w
+# grid .m4.3.rbd -row 3 -column 2 -sticky w
+grid .m4.3.rbd -row 4 -column 2 -sticky w
+grid .m4.3.bt -row 2 -column 2 -sticky w
+grid .m4.3.padtext -row 3 -column 2 
+grid .m4.3.hi -row 5  -column 2 -columnspan 2 -padx 10 -sticky nw
+grid .m4.3.si -row 2 -rowspan 5 -column 3 -padx 10 -sticky nw
+grid .m4.3.cv -columnspan 4 -sticky w
+
+# initialize gnuplot file  and clean intermediate data file
+if {[file exists $dataroot]} {
+    upgs
+    exec echo " " > $diagdatafile
+    exec echo " " > $diagdatafile3
+}
+
+#tab 5
+frame .m4.4 
+label .m4.4.t -text "Maintenance commands & internal tweeks"
+
+
+button .m4.4.b10c -text "startinputpart2" -command startinputpart2
+button .m4.4.b10d -text "enable 2" -command enableinputpart2
+button .m4.4.b10e -text "disble 2" -command disableinputpart2
+
+button .m4.4.b10f -text "enable 1" -command enableinputpart1
+button .m4.4.b10g -text "disble 1" -command disableinputpart1
+button .m4.4.b10h -text "shutdowinp1" -command shutdowninputpart1
+button .m4.4.b10i -text "shutdinp2" -command shutdowninputpart2
+button .m4.4.b10j -text "stopcapture2" -command stopcapture2
+button .m4.4.b11a -text "clear t1 t3 rawkey dir"  -command removestaletempfiles
+button .m4.4.b11b -text "clear stale log files"  -command removestalelogfiles
+button .m4.4.b11c -text "clear histo files"  -command removehistofiles
+button .m4.4.exbut -text "Quit" -command exitproc \
+-bg $col3 -activebackground $col3h
+
+label .m4.4.l20 -text "Password:" 
+entry .m4.4.e20 -textvariable password -width 20 -show *
+bind .m4.4.e20 <Return> checkpw
+
+
+grid .m4.4.t -pady 5 -columnspan 2 -sticky nsew
+grid .m4.4.b10c .m4.4.b10d .m4.4.b10e -sticky w
+grid .m4.4.b10f .m4.4.b10g .m4.4.b10h -sticky w
+grid .m4.4.b10i .m4.4.b10j  -sticky w
+grid .m4.4.b11a .m4.4.b11b .m4.4.b11c -sticky w
+grid .m4.4.exbut - - -pady 10
+grid .m4.4.l20 .m4.4.e20 - -sticky w -pady 10
+
+
+# activate a certain tab
+proc maketab {u} {
+    global currenttab
+    if {[.m2.1.t$u cget -state] == "disabled"} { return }
+    .m2.1.t$currenttab configure -state normal
+    .m2.1.t$u configure -state active
+    pack forget .m4.$currenttab
+    set currenttab $u
+    pack .m4.$u -anchor w
+}
+
+# choose initial tab
+set currenttab 3
+maketab 3
+
+foreach k {2 3 4 } {
+     bind .m2.1.t$k <Button-1> "maketab $k"
+}
+
+proc exitproc {} {
+    global readerpid readerpid2 chopperpid chopperpid2 costreampid
+
+    # remove reader program
+    catch {exec kill -SIGHUP $readerpid}
+    catch {exec kill -SIGHUP $readerpid2}
+
+    # remove chopper program
+    catch {exec kill -SIGHUP $chopperpid}
+    catch {exec kill -SIGHUP $chopperpid2}
+
+    #costream
+    catch {exec kill -SIGHUP $costreampid}
+
+    exit
+}
+bind .m4.4.exbut <Return> exitproc
+
+#trap window close procedure
+wm protocol . WM_DELETE_WINDOW exitproc
+
+proc checkpw {} {
+    global password
+    set locklist {.m4.4.b10c .m4.4.b10d .m4.4.b10e .m4.4.b10f .m4.4.b10g \
+		  .m4.4.b10h .m4.4.b10i .m4.4.b10j .m2.1.t2 }
+    if {$password == "hello"} {
+	foreach k $locklist { $k configure -state normal }
+    } else {
+	foreach k $locklist { $k configure -state disabled }
+    }
+}
+set password "" ; checkpw
