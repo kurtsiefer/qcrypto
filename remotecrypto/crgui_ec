@@ -20,6 +20,10 @@
 # this source code; if not, write to:
 # Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
+# color choices
+set bgcol1 "gray75"
+set bgcol2 "gray75"
+set bgcol3 "lightblue"
 
 # global definitions and defaults
 set dataroot "/tmp/cryptostuff"
@@ -147,8 +151,8 @@ proc makedirectories {} {
 proc startcommunication {} {
     global debugval
     global commhandle commstat programroot commprog dataroot 
-    global portnum targetmachine receivenotehandle
-    .m1 configure -bg blue
+    global portnum targetmachine receivenotehandle bgcol3
+    .m1 configure -bg $bgcol3
 
     if {$commstat == 0 } {
 	removestalecommfiles;
@@ -901,8 +905,8 @@ proc requeststatus {} { # get costream status from other side
 }
 proc startrawkeygen {} { #initiating raw key generation
     global negotiatemode t1logcount
-    global counterpid
-    .m1 configure -bg blue
+    global counterpid bgcol3
+    .m1 configure -bg $bgcol3
     # check running of single counter
     if {$counterpid != 0} return
     # disable single counter buttons
@@ -1202,21 +1206,25 @@ grid rowconfigure . 1 -minsize 300
 grid rowconfigure . 0 -minsize 50
 
 # master grid
-frame .m1 -bg blue  ; # contains upper leftcorner
-frame .m2   -bg green; # contains tabs
-frame .m3 -height 300 -bg yellow -padx 3; # status bar
+# frame .m1 -bg blue  ; # contains upper leftcorner
+frame .m1 -bg $bgcol3 ; # contains upper leftcorner
+# frame .m2   -bg green; # contains tabs
+frame .m2 -bg $bgcol3 ; # contains tabs
+# frame .m3 -height 300 -bg yellow -padx 3; # status bar
+frame .m3 -height 300 -bg $bgcol1 -padx 3; # status bar
 frame .m4 -height 300 ; # main part
 grid .m1 .m2  -row 0 -sticky nsew
 grid .m3 .m4 -row 1 -sticky nsew
 
-#logo corner
-label .m1.t2 -text "local id:" -bg orange
-label .m1.t -textvariable localidentity -bg orange
+#logo corner. old bg col: orange
+label .m1.t2 -text "local identity:" -bg $bgcol3
+label .m1.t -textvariable localidentity -bg $bgcol3
 grid .m1.t2 .m1.t -sticky nw
 # pack .m1.t
 
 # prepare tabs
-frame .m2.1 -bg green -padx 6
+# frame .m2.1 -bg green -padx 6
+frame .m2.1 -bg $bgcol3 -padx 6
 set pcolor \#b0b0b0 ; # background color for passive cells
 label .m2.1.t1 -text main ; # tab1
 label .m2.1.t2 -text settings ; # tab2 
@@ -1231,54 +1239,56 @@ for {set i 0} { $i < 5 } {incr i} {grid columnconfigure .m2.1 $i -minsize 100}
 pack .m2.1 -side bottom
 
 # status bar on the left side
-label .m3.t1 -text "Status:"
+label .m3.t1 -text "Status:" -bg $bgcol2
 button .m3.exbut -text "Quit" -command exitproc
 
-label .m3.t2  -textvariable currenttab -width 2 -foreground blue
-label .m3.t3 -text "rmt gui:" ; label .m3.t4 -textvariable guistat -width 10
+label .m3.t2  -textvariable currenttab -width 2 -foreground blue -anchor e
+label .m3.t3 -text "remote gui status:"  -bg $bgcol2
+label .m3.t4 -textvariable guistat -width 15 -bg $bgcol2 -anchor e -padx 2
 set guistat "linking..."
-label .m3.t5 -text "local stat:" ; label .m3.t6 -textvariable locstat -width 10
+label .m3.t5 -text "local gui status:"  -bg $bgcol2
+label .m3.t6 -textvariable locstat -width 15 -bg $bgcol2 -anchor e
 set locstat "start apps"
-label .m3.tdebug -text "debugval:"
-label .m3.rdeb -textvariable debugval -width 25
-label .m3.t7 -text "commstat:"
-label .m3.t8 -textvariable commstat -width 3
-label .m3.t9 -text "identity stat:"
-label .m3.t9a -textvariable identitycheck -width 3
-label .m3.t10 -text "rmt id:"
-label .m3.t10a -textvariable remoteidentity -width 15
-label .m3.t11 -text "negotiated symmetry:"
-label .m3.t11a -textvariable negotiatemode -width 3
-label .m3.t12 -text "protocol:"
-label .m3.t12a -textvariable protocol -width 3
-label .m3.t13 -text "tracked time difference"
-label .m3.t13a -textvariable Mdeltat -width 7
-label .m3.t14 -text "Maccidentals:"
-label .m3.t14a -textvariable Maccidentals -width 7
-label .m3.t15 -text "Mcoincidences:"
-label .m3.t15a -textvariable Mcoincidences -width 7
-label .m3.t16 -text "Moutepoch:"
-label .m3.t16a -textvariable Moutepoch -width 10
-label .m3.t17 -text "readerpid"
-label .m3.t17a -textvariable readerpid -width 7
-label .m3.t18 -text "t1logcnt"
-label .m3.t18a -textvariable t1logcount -width 7
-label .m3.t19 -text "firstepoch:"
-label .m3.t19a -textvariable firstepoch -width 7
-label .m3.t20 -text "recepoch:"
-label .m3.t20a -textvariable recepoch -width 7
-label .m3.t21 -text "initial time difference:"
-label .m3.t21a -textvariable timedifference -width 15
-label .m3.t22 -text "long match (in sig):"
-label .m3.t22a -textvariable siglong -width 15
-label .m3.t23 -text "short match (in sig):"
-label .m3.t23a -textvariable sigshort -width 15
-label .m3.t24 -text ECspinlock
-label .m3.t24a -textvariable ECspinlock -width 15
+label .m3.tdebug -text "debug message:" -bg $bgcol2
+label .m3.rdeb -textvariable debugval -width 28 -bg $bgcol2 -anchor e
+label .m3.t7 -text "communication status:" -bg $bgcol2
+label .m3.t8 -textvariable commstat -width 9 -bg $bgcol2 -anchor e
+label .m3.t9 -text "identity status:" -bg $bgcol2
+label .m3.t9a -textvariable identitycheck -width 9 -bg $bgcol2 -anchor e
+label .m3.t10 -text "remote identity:" -bg $bgcol2
+label .m3.t10a -textvariable remoteidentity -width 9 -bg $bgcol2 -anchor e
+label .m3.t11 -text "negotiated symmetry:" -bg $bgcol2
+label .m3.t11a -textvariable negotiatemode -width 9 -bg $bgcol2 -anchor e
+label .m3.t12 -text "protocol:" -bg $bgcol2
+label .m3.t12a -textvariable protocol -width 9 -bg $bgcol2 -anchor e
+label .m3.t13 -text "tracked time difference:" -bg $bgcol2
+label .m3.t13a -textvariable Mdeltat -width 9 -bg $bgcol2 -anchor e
+label .m3.t14 -text "accidentals per epoch:" -bg $bgcol2
+label .m3.t14a -textvariable Maccidentals -width 9 -bg $bgcol2 -anchor e
+label .m3.t15 -text "coincidences per epoch:" -bg $bgcol2
+label .m3.t15a -textvariable Mcoincidences -width 9 -bg $bgcol2 -anchor e
+label .m3.t16 -text "Moutepoch:" -bg $bgcol2
+label .m3.t16a -textvariable Moutepoch -width 9 -bg $bgcol2 -anchor e
+label .m3.t17 -text "reader pid" -bg $bgcol2
+label .m3.t17a -textvariable readerpid -width 9 -bg $bgcol2 -anchor e
+label .m3.t18 -text "t1logcnt" -bg $bgcol2
+label .m3.t18a -textvariable t1logcount -width 9 -bg $bgcol2 -anchor e
+label .m3.t19 -text "first epoch:" -bg $bgcol2
+label .m3.t19a -textvariable firstepoch -width 9 -bg $bgcol2 -anchor e
+label .m3.t20 -text "received epoch:" -bg $bgcol2
+label .m3.t20a -textvariable recepoch -width 9 -bg $bgcol2 -anchor e
+label .m3.t21 -text "initial time difference:" -bg $bgcol2
+label .m3.t21a -textvariable timedifference -width 9 -bg $bgcol2 -anchor e
+label .m3.t22 -text "long match (in sig):" -bg $bgcol2
+label .m3.t22a -textvariable siglong -width 9 -bg $bgcol2 -anchor e
+label .m3.t23 -text "short match (in sig):" -bg $bgcol2
+label .m3.t23a -textvariable sigshort -width 9 -bg $bgcol2 -anchor e
+label .m3.t24 -text ECspinlock -bg $bgcol2
+label .m3.t24a -textvariable ECspinlock -width 9 -bg $bgcol2 -anchor e
 
 
 grid .m3.t1 -columnspan 2 -pady 2
-grid .m3.t5 .m3.t6 ; # local status
+grid .m3.t5 .m3.t6 -sticky w ; # local status
 grid .m3.t3 .m3.t4 -sticky w ; # rmote status
 grid .m3.tdebug  -sticky w ; grid .m3.rdeb -columnspan 2 -sticky w
 grid .m3.t7 .m3.t8 -sticky w -pady 3
@@ -1316,7 +1326,7 @@ button .m4.1.b10 -text "start accquisition" -command startrawkeygen
 button .m4.1.b10a -text "stop accquisition" -command stoprawkeygen
 button .m4.1.b10b -text "request statusdata" -command requeststatus
 
-button .m4.1.b10l -text "emergencyshutdown" -bg red -command {
+button .m4.1.b10l -text "emergency shutdown" -bg red -command {
     if {$commstat==2} {sendmsg en4} ; emergencyshutdown}
 
 button .m4.1.b11 -text "remove raw keys" -command removerawkeys
