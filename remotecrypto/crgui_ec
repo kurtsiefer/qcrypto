@@ -58,6 +58,9 @@ for {set i 0 } {$i < 4} {incr i} { set detcval($i) 0 } ; # det skew
 set autorestart 1 ; # to restart thing after costream died
 set killmode 0 ; # remove unused files. 1: keep t2/t4, 2:keep all
 
+set extclockopt "-e" ; # default is to use external clock
+set extclockmode 1 ; # for gui update
+
 set maxeventdiff 20000 ; # corresponds to 50 cps
 
 set identitycheck 0 ; # 0: no identity checked, 1: successful
@@ -487,10 +490,11 @@ proc initiateprotonego {} {
 proc measurelocalcountrate {} { # measure local count rate with real hardware
     global localcountrate
     global programroot dataroot
+    global extclockopt
     set localcountrate "--"
     set a [open $dataroot/rawevents r+]
     # read $a
-    set y [exec $programroot/readevents -a 1 -F -u -e -S 20 \
+    set y [exec $programroot/readevents -a 1 -F -u $extclockopt -S 20 \
 	       | $programroot/getrate \
 	       > $dataroot/rawevents & ]
     set localcountrate [gets $a]
@@ -504,6 +508,7 @@ proc startinputpart1 {} {
     global programroot dataroot readerpid chopperpid negotiatemode protocol
     global locstat debugval rawdummyhandle detcorrection maxeventdiff
     global t2logpipe  
+    global extclockopt
     if {$negotiatemode != 1} return
 
     # select protocol for chopper
@@ -529,7 +534,7 @@ proc startinputpart1 {} {
 
     # start readevents but keep passive
     set readerpid [exec $programroot/readevents \
-		       -a 1 -R -A -e -S 20 \
+		       -a 1 -R -A $extclockopt -S 20 \
 		       $detcorrection \
 		       > $dataroot/rawevents \
 		       2>>$dataroot/readeventserror & ]
@@ -576,6 +581,7 @@ proc disableinputpart1 {} {
 proc startinputpart2 {} {
     global programroot dataroot readerpid chopperpid negotiatemode t1logpipe
     global t1logcount debugval rawdummyhandle2 detcorrection maxeventdiff
+    global extclockopt
     set debugval "hello1" ; update
     if {$negotiatemode != 2} return
     set debugval "hello2" ; update
@@ -597,7 +603,7 @@ proc startinputpart2 {} {
 			-m $maxeventdiff &]
 
     set readerpid [exec $programroot/readevents \
-		       -a 1 -R -A -e -S 20 \
+		       -a 1 -R -A $extclockopt -S 20 \
 		       $detcorrection \
 		       > $dataroot/rawevents \
 		       2>>$dataroot/readeventserror &]
@@ -953,7 +959,7 @@ proc removefinalkeys {} {
 proc startsinglecount {} {
     global programroot dataroot readerpid counterpid debugval
     global rawdummyhandle locstat counterpipe readerpid counterpipe
-    global mdisp1
+    global mdisp1 extclockopt
     # disable main acquisition buttons
     .m4.1.b10 configure -state disabled
     .m4.1.b10a configure -state disabled
@@ -972,7 +978,7 @@ proc startsinglecount {} {
 			-i $dataroot/rawevents \
 			-n 0 -s  > $dataroot/cntlogpipe & ]
     set readerpid [exec $programroot/readevents \
-		       -a 1 -A -e -S 20 -F -u \
+		       -a 1 -A $extclockopt -S 20 -F -u \
 		       > $dataroot/rawevents & ]
 }
 
@@ -1432,6 +1438,16 @@ radiobutton .m4.2.f61a.rb1 -text "off" -variable costreamglogmode -value 0
 radiobutton .m4.2.f61a.rb2 -text "on" -variable costreamglogmode -value 1
 grid .m4.2.f61a.rb1 .m4.2.f61a.rb2 -sticky w
 
+# external clock option
+label .m4.2.t63 -text "clock source"
+frame .m4.2.f63a
+radiobutton .m4.2.f63a.rb1 -text "intern" -variable extclockmode -value 0 \
+    -command { set extclockopt "-i" }
+radiobutton .m4.2.f63a.rb2 -text "extern" -variable extclockmode -value 1 \
+    -command { set extclockopt "-e" }
+grid .m4.2.f63a.rb1 .m4.2.f63a.rb2 -sticky w
+
+
 grid .m4.2.t1 -columnspan 4 -pady 5 -sticky w
 grid .m4.2.t2 .m4.2.e1 .m4.2.b1 -sticky w ; # directory root
 grid .m4.2.t3 .m4.2.e2 -sticky w
@@ -1451,6 +1467,7 @@ grid .m4.2.t51 .m4.2.e51a .m4.2.t51b -sticky w
 grid .m4.2.t52 .m4.2.f52a -sticky w ; # autorestart
 grid .m4.2.t60 -columnspan 4 -pady 5 -sticky w ; # header for logging section
 grid .m4.2.t61 .m4.2.f61a  -sticky w
+grid .m4.2.t63 .m4.2.f63a  -sticky w
 
 
 
