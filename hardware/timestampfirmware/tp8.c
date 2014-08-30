@@ -61,37 +61,37 @@ ToDo:          use flowstates in GPIF engine to get more efficient transfer
 #include "usbtimetagio.h"
 
 /* static variables */
-static bit bitSUDAVSeen = 0; /* EP0 irq */
-static bit bitURESSeen = 0;  /*  bus reset */
-static bit bitEP1Seen = 0;   /* EP 1 activty */
-static bit bitEP1INseen =0; /* for test */
-static bit bitTimerSeen = 0;
-static bit bitGPIFrunning = 0; /* 1 if GPIF is working with internal fifo */
-static bit bitDoFlush = 0; /* to indicate a necessary flush */
-static bit bitOverflowCondition = 0; /* no overflow cond */
-static bit bitDesiredInhibitStatus = 0; /* to keep track of changes in ovfl */
-xdata char altsetting = 0; /* 0: naked, 1: all ep interface settings */
-xdata char configuration = 1; /* 1: full sp, 2: high sp */
+static __bit bitSUDAVSeen = 0; /* EP0 irq */
+static __bit bitURESSeen = 0;  /*  bus reset */
+static __bit bitEP1Seen = 0;   /* EP 1 activty */
+static __bit bitEP1INseen =0; /* for test */
+static __bit bitTimerSeen = 0;
+static __bit bitGPIFrunning = 0; /* 1 if GPIF is working with internal fifo */
+static __bit bitDoFlush = 0; /* to indicate a necessary flush */
+static __bit bitOverflowCondition = 0; /* no overflow cond */
+static __bit bitDesiredInhibitStatus = 0; /* to keep track of changes in ovfl */
+__xdata char altsetting = 0; /* 0: naked, 1: all ep interface settings */
+__xdata char configuration = 1; /* 1: full sp, 2: high sp */
 
-xdata char bpstorage;
-xdata char dpstorage; /* to keep state of latched
+__xdata char bpstorage;
+__xdata char dpstorage; /* to keep state of latched
 			 contents of ports B and D */
-xdata char ifconfig_ports; /* keeps port pattern */
-xdata char ifconfig_gpif; /* keeps GPIF pattern */
-xdata char ifconfig_active; /* No ports there, maybe gpif or bus pattern */
+__xdata char ifconfig_ports; /* keeps port pattern */
+__xdata char ifconfig_gpif; /* keeps GPIF pattern */
+__xdata char ifconfig_active; /* No ports there, maybe gpif or bus pattern */
 
-xdata char autoflushvalue; /* when to flush */
-xdata char flushcount; /* counts down timer clicks */
-xdata char hitcnt; /* how often was there the same empty+bcnt condition */
-xdata unsigned int oldcnt,newcnt; /* to buffer byte counts */
-xdata unsigned int RFchoice;   /* data sent to pll or HW equivalent */
+__xdata char autoflushvalue; /* when to flush */
+__xdata char flushcount; /* counts down timer clicks */
+__xdata char hitcnt; /* how often was there the same empty+bcnt condition */
+__xdata unsigned int oldcnt,newcnt; /* to buffer byte counts */
+__xdata unsigned int RFchoice;   /* data sent to pll or HW equivalent */
 
 
 /* FIFO serial load stuff */
-xdata unsigned int FIFOupperwatermark;
+__xdata unsigned int FIFOupperwatermark;
 
 /* static gobal variables for commands  */
-xdata char ep1command; /* parameter for status request */
+__xdata char ep1command; /* parameter for status request */
 
 /* generic delay */
 static void SpinDelay(unsigned int count) {
@@ -103,7 +103,7 @@ static void SpinDelay(unsigned int count) {
 
 /* setup ports in a safe state initially and carry out master reset of FIFO;
    leave the timestamp card in a idling but reasonable state */
-static code void initPorts() {
+static __code void initPorts() {
     OEA = 0xe0;  /* three msb are output */
     /* transparent latch, disable sample, off extfifo */
     IOA = bmSampleInhibit | bmfifo_nCSB | bmNLatchEnable;
@@ -171,7 +171,7 @@ static void StopFIFOAcquisition() {
 
 */
 /* seems to work with 7 cycles per word */
-static code char InitWaveData0[] = {
+static __code char InitWaveData0[] = {
     /* start with waveform 0 (FIFO READ) */
     0x0e, 0x01, 0x01, 0x01, 0x01, 0x01, 0x38, /* length/branch info 0-7 */
     0x00, /* reserved */
@@ -194,7 +194,7 @@ static code char InitWaveData0[] = {
    step 5: eight cycles w ctl1=0
    step 6: pre-ilde with ctl1=1
 */
-static code char InitWaveData3[] = {
+static __code char InitWaveData3[] = {
     /* waveform 3 (Single  WRITE) */
     0x04, 0x3a, 0x1a, 0x1c, 0x02, 0x08, 0x03, /* length/branch info 0-7 */
     0x00, /* reserved */
@@ -345,7 +345,7 @@ static void ReEnumberate() {
 
 /***********************************************************************/
 /* usb IRQ stuff */
-static void isrUsb(void) interrupt 8 using 3  {/* critical */
+static void isrUsb(void) __interrupt (8) __using (3)  {/* critical */
     EXIF &= ~bmEXIF_USBINT; /* clear USBINT interrupt */
     if (  USBIRQ & bmSUDAV ) { /* Setup Data available */
 	USBIRQ = bmSUDAV; bitSUDAVSeen = 1;
@@ -362,9 +362,9 @@ static void isrUsb(void) interrupt 8 using 3  {/* critical */
 
 /***********************************************************************/
 /* EP0 service routines */
-static code char xuxu[]={0,0};  /* This stuff seems to be needed to keep the 
-				 following table word-aligned */
-static code char Descriptors[] = { /* only a full speed device */
+/* The xuxu fillers may be needed to keep Descriptor tables word-aligned */
+static __code char xuxu[]={0};
+static __code char Descriptors[] = { /* only a full speed device */
     0x12, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0x40, // device, usb2.0,..
     0xb4, 0x04, 0x34, 0x12, 0x01, 0x02,  // cypress, dev 1234, rel 2.1
     0x00, 0x00, 0x00, 0x01, // no indx strings, 1 configuration
@@ -389,9 +389,9 @@ static code char Descriptors[] = { /* only a full speed device */
 };
 
 /* some filler to keep stuff word-aligned */
-static code char xuxu2[]= {0};  
+static __code char xuxu2[]= {0};  
 
-static code char Descriptors2[] = { /* table for high speed operation */
+static __code char Descriptors2[] = { /* table for high speed operation */
 
     0x12, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0x40, // device, usb2.0,..
     0xb4, 0x04, 0x34, 0x12, 0x01, 0x02,  // cypress, dev 1234, rel 2.1
@@ -413,6 +413,13 @@ static code char Descriptors2[] = { /* table for high speed operation */
     0x07, 0x05, 0x81, 0x02, 0x00, 0x02, 0x00, // EP1in, bulk, 512 byte, no poll
     0x07, 0x05, 0x82, 0x02, 0x00, 0x02, 0x00, // EP2in, bulk, 512 byte, no poll
 
+    0x00, // termination of descriptor list
+};
+
+
+/* some filler to keep stuff word-aligned */
+static __code char xuxu3[]= {0};  
+static __code char StringDescriptors[] = { /* table for strings */
     0x04, 0x03, 'l',0,  // dummy but read??
     0x40, 0x03, 'C',0, 'e',0, 'n',0, 't',0, 'r',0, 'e',0, ' ',0,
                 'f',0, 'o',0, 'r',0, ' ',0, 'Q',0, 'u',0, 'a',0,
@@ -508,12 +515,15 @@ static void ctrlGetDescriptor() {
     char index = SETUPDAT[2]; /* wValueL */
     char count = 0;
     char seen = 0; /* have seen a string */
-    static code char *current_DP;
+    static __code char *current_DP;
     current_DP = (USBCS & bmHSM)? Descriptors2:Descriptors; 
     /* try to make other speed config */
     if (key==7) {
       current_DP = (USBCS & bmHSM)? Descriptors:Descriptors2;
       key=2; /* go into 'retrieve configuration' state */
+    }
+    if (key==3) { /* get string table */
+      current_DP = StringDescriptors;
     }
     SUDPTRCTL = bmSDPAUTO; /* allow for automatic device reply */
     for (; current_DP[0]; current_DP += current_DP[0])
@@ -521,6 +531,7 @@ static void ctrlGetDescriptor() {
 	SUDPTRH = (char)(((unsigned int)current_DP)>>8)&0xff;
 	SUDPTRL = (char)( (unsigned int)current_DP    )&0xff;
 	seen=1;
+	break;
       }
     
     if (!seen) EP0CS = bmEPSTALL; /* did not find descriptor */
@@ -585,7 +596,7 @@ static void doSETUP() {
 
 */
 /* Stop GPIF and allow line access */
-static code void HaltGPIFforLineaccess() {
+static __code void HaltGPIFforLineaccess() {
     /* Signal GPIF to stop if running */
     if (bitGPIFrunning) StopFIFOAcquisition();
     /* disable /CSB */
@@ -595,7 +606,7 @@ static code void HaltGPIFforLineaccess() {
     IFCONFIG = ifconfig_ports;
     IOA5 = 1; /* transparent latch */
 }
-static code void ResumeGPIFafterLineaccess() {
+static __code void ResumeGPIFafterLineaccess() {
     IOA5 = 0; /* Latch status */
     /* TODO: ports to FD again */
     IFCONFIG = ifconfig_active;
@@ -608,7 +619,7 @@ static code void ResumeGPIFafterLineaccess() {
    into the global ShiftTarget variable, and then specific submit functions
    are called. The IOB and IOD registers have to be routed to the data lines
    before by making the latch transparent. */
-data unsigned int ShiftTarget; /* store & process serial data */
+__data unsigned int ShiftTarget; /* store & process serial data */
 /* send serial data to DAC; registers are avaliable already. This code is
    intended to talk to the AD5318 chip from Analog Devices */
 static void SubmitDAC() {
@@ -757,7 +768,7 @@ static void SetupTimer0() {
 }
 
 /* service routine timer0; checks autoflush and eventually forces a pktsend */
-static void isrt0(void) interrupt 5 { /* should this use a bank? */
+static void isrt0(void) __interrupt (5) { /* should this use a bank? */
     TF2 = 0; /* reset timer overflow flag */
     bitTimerSeen = 1; /* make us heared */
 }
