@@ -11,6 +11,7 @@
 # directory for the driver for the local OS version
 localdir=$(subst /,\/,$(PWD))
 version="2.6"
+sourcedir=$(PWD)/2.6
 loaderdir=hotplug
 loadersrc1=$(loaderdir)/udevsrc
 loadersrc2=$(loaderdir)/hotplgsrc
@@ -24,7 +25,7 @@ all: driver $(loadertarget1) $(loadertarget2)
 # execute version-specific makefile
 .PHONY: driver
 driver:	$(loadertarget1) $(loadertarget2)
-	$(MAKE) -C $(version)
+	$(MAKE) -C /lib/modules/`uname -r`/build M=$(sourcedir)
 
 $(loadertarget1): $(loadersrc1)
 	sed -e $(udevscript1) -e $(udevscript2) $(loadersrc1) >$(loadertarget1)
@@ -41,6 +42,8 @@ clean:
 	rm -fr 2.6/.tmp*
 
 udev: 	driver $(loadertarget1)
+	sudo $(MAKE) -C /lib/modules/`uname -r`/build M=$(sourcedir) modules_install
+	sudo /sbin/depmod -a
 	sudo cp $(loadertarget1) /etc/udev/rules.d/
 
 hotplugd: driver $(loadertarget2)
