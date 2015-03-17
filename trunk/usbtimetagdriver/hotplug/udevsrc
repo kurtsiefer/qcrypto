@@ -1,6 +1,6 @@
 #set of udev rules to cope with a new device driver
 
-SUBSYSTEM=="usb", ACTION=="add", ENV{PRODUCT}=="4b4/1234/*", RUN+="/sbin/insmod DRIVERPATH/usbtimetag.ko"
+SUBSYSTEM=="usb", ACTION=="add", ENV{PRODUCT}=="4b4/1234/*", RUN+="/sbin/modprobe usbtimetag.ko"
 
 #SUBSYSTEM=="usb", ACTION=="remove", ENV{PRODUCT}=="4b4/1234/*", RUN+="/sbin/rmmod usbtimetag"
 
@@ -8,3 +8,4 @@ SUBSYSTEM=="usb", ACTION=="add", ENV{PRODUCT}=="4b4/1234/*", RUN+="/sbin/insmod 
 # owner set to the original device
 
 ACTION=="add", KERNEL=="timestamp*", GROUP="users", SYMLINK+="ioboards/%k"
+ACTION=="change", KERNEL=="timestamp*", GROUP="users", SYMLINK+="ioboards/%k"
