@@ -1,7 +1,7 @@
 /* usbtimetag.c:  This is the device driver for the timetag unit, in
                    its version with a USB interface. Version as of 20090810.
 
- Copyright (C) 2006-2009 Christian Kurtsiefer, National University
+ Copyright (C) 2006-2009, 2018 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -90,9 +90,19 @@
 #define HAS_FAULT_METHOD
 #endif
 
+/* deal with reborn page count command - FIXME: find correct definition */
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,5,0))
+#define HAS_SET_PAGE_COUNT
+#endif
+
+/* deal with newer fault code API */
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,10,0))
+#define HAS_LEAN_VM_FAULT 
+#endif
+
 
 /* fix missing page count command in kernel version >2.6.13 or so */
-#ifndef set_page_count
+#ifndef HAS_SET_PAGE_COUNT
 static inline void set_page_count(struct page *page, int v)
 {
 	atomic_set(&page->_count, v);
@@ -134,6 +144,9 @@ typedef struct cardinfo {
     unsigned long current_free_offset; /* address within that block */
     int received_bytes;    /* number of received bytes so far */
     int errstat;           /* error status set during a callback */
+    char *scratchbuf;      /* points to a DMA-capable scratch buffer for
+  			      small urbs */
+
 
     /* for interrupt frequency servo. This tries to arrange for a usb irq rate
        between 1 and 10 jiffies */
@@ -494,8 +507,13 @@ static void usbdev_vm_close(struct  vm_area_struct * area) {
 
 /*************************** transition code *************/
 #ifdef HAS_FAULT_METHOD      /* new fault() code */
+#ifdef HAS_LEAN_VM_FAULT
+static int usbdev_vm_fault(struct vm_fault *vmf) {
+    struct cardinfo *cp = (struct cardinfo *)vmf->vma->vm_private_data;
+#else
 static int usbdev_vm_fault(struct vm_area_struct *area, struct vm_fault *vmf) {
     struct cardinfo *cp = (struct cardinfo *)area->vm_private_data;
+#endif
     unsigned long ofs = (vmf->pgoff << PAGE_SHIFT); /* should be addr_t ? */
     unsigned long intofs;
     unsigned char * virtad = NULL; /* start ad of page in kernel space */
@@ -688,7 +706,7 @@ static int usbdev_flat_close(struct inode *inode, struct file *filp) {
 /* change in the ioctl structure to unlocked_ioctl...removed inode parameter */
 static long usbdev_flat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
     struct cardinfo *cp = (struct cardinfo *)filp->private_data;
-    unsigned char data[5]; /* send stuff */
+    unsigned char *data = cp->scratchbuf; /* DMA-compat buffer */
     unsigned char len=3; unsigned char chksum=0;
     int err;
     int atrf; /* actually transferred data */
@@ -796,6 +814,12 @@ static int usbdev_init_one(struct usb_interface *intf, const struct usb_device_i
 	printk("%s: Cannot kmalloc device memory\n",USBDEV_NAME);
 	return -ENOMEM;
     }
+    cp->scratchbuf = (char *)kmalloc(256,GFP_DMA);
+    if (!cp->scratchbuf) {
+	printk("%s: Cannot kmalloc scratchbuf memory\n",USBDEV_NAME);
+	return -ENOMEM;
+    }
+
 
     cp->iocard_opened = 0; /* no open */
     cp->dma_main_pointer = NULL ; /* no DMA buffer */
@@ -862,7 +886,8 @@ static int usbdev_init_one(struct usb_interface *intf, const struct usb_device_i
  out1:
     usb_deregister_dev(intf, &timestampclass);
  out2:
-    /* first give back DMA buffer */
+    /* first give back DMA buffer, then cardinfo structure */
+    kfree(cp->scratchbuf);
     kfree(cp);
     printk("%s: dev alloc went wrong, give back %p\n",USBDEV_NAME,cp);
 
@@ -910,7 +935,7 @@ static void usbdev_remove_one(struct usb_interface *interface) {
     usb_set_intfdata(interface, NULL);
     usb_deregister_dev(interface, &timestampclass);
 
-
+    kfree(cp->scratchbuf); /* give back DMA-capable scratch buffer */
     kfree(cp); /* give back card data container structure */
     
 }

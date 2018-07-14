@@ -3,14 +3,9 @@ installation scripts and testing software for that driver.
 
 directory content
 
-2.6/      directory containing the kernel driver and corresponding support
+driver/   directory containing the kernel driver and corresponding support
 	  files. In particular, the usbtimetagio.h contains the ioctl
 	  definitions needed for any application talking to the device.
-
-hotplug/  directory containing the sources for the hotplugging methods.
-	  Depending on the distribution, different USB hotplugging scenarios
-	  are followed. At the moment, I don't know how to identify the OS
-	  distribution version in a reasonable way.
 
 desginstuff/ contains some random thoughts which came up during the driver
 	     design. 
@@ -28,33 +23,15 @@ likely to removed to any other place as the driver will be loaded from
 hotplugging out of this directory structure. Here, this directory should
 reside in /home/qitlab/programs/.
 
-Then, you have to compile the driver itself. Remember that for the moment,
-there is only a port for a 2.6 kernel, and no backport for the 2.4 machines
-(not sure I want to do this anyway). The compilation is done from themain
-driver directory by saying
+Then, you have to compile the driver itself. The earlier versions seems to run
+with kernels from 2.6 up to 4.4, with the latest changes confirmed to runon
+4.12 kernels.
+The compilation is done from themain driver directory by saying
 
-        make
+    make
 
-Then, the hotplugging machinery needs to be installed. There are two different
-versions for this mechanism, depending on the distribution the machine runs
-on. SuSE 10.0 uses the newer udev method, which is a generalized driver
-insertion and dynamic device generation tool. SuSE 9.3 uses the somewhat older
-but seemingly more common /etc/hotplug.d mechanism. Most likely other
-versions work as well, but these are the only ones I tested.  Explanation of
-the details see further down. 
-
-So, you first need to find out what distribution you have. Both scripts will
-ask you for a superuser password to copy the rules into the relevant
-directories.
-
-For SuSE 9.3, you install the hotplugging stuff by saying
-    
-      make hotplugd
-
-This installs a loader script into /etc/hotplug.d/usb/ with the correct
-pathname for the device driver
-
-For SuSE 10.0 and above, you install the hotplugging stuff with the command
+Then, the hotplugging machinery needs to be installed. As of 2018, the udev
+method seems to be dominant. You install the hotplugging stuff with the command
 
     make udev
 
@@ -112,7 +89,7 @@ Driver API:
 
 - request a buffer with the mmap command. 
 - various control ioctls for steering the hardware, the DMA engine in the
-  driver, and to find out the amount of transferred data. See readevents2.c
+  driver, and to find out the amount of transferred data. See readevents3.c
   application to get an idea how the commands are used.
 
 
@@ -132,3 +109,5 @@ The device in /dev/ioboards/timestamp0 does not show up.
 
 
 Christian Kurtsiefer, 30.1.07
+
+Updates to this document with kernel 4.12 adaptation: 14.7.2018chk
