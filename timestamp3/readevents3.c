@@ -5,7 +5,7 @@
 		  Version as of 20080225, works also for Ekert-91
 		  type protocols.
 
- Copyright (C) 2005-2008 Christian Kurtsiefer, National University
+ Copyright (C) 2005-2008, 2019 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -28,7 +28,7 @@
    processing to the data. Configuration happens by commandline options.
 
    version for usb card....first attempt 17.12.06chk
-   status: version as of 25.2.08 chk
+   status: version as of 15.7.19 chk
  
    output is directed to stdout in a configurable form, and data acquisition
    is controlled via some signals.
@@ -119,6 +119,9 @@
 
    -U devicename:     allows to draw the raw data from the named device node.
                       If not specified, the default is /dev/ioboards/timestamp0
+   -Y y1,y2,y3,y4:    ignores detector events if they fall within a certain time
+                      of the last event seen by a particular detector. The dead times
+		      y1...y4 are measured in multiples of 125ps.
 
    Signals:
    SIGUSR1:   enable data acquisition. This causes the inhibit flag
@@ -165,6 +168,7 @@
    - fixed missing bits and wrong int/ext selection chk240307
    - some cleanup, propagated indexin into out options 3,4,5  25.2.08chk
    - cleanup of usb flush option call
+   - added forced dead times for detectors with -Y option 15.7.19chk
 
 
    ToDo:
@@ -312,7 +316,7 @@ char *errormessage[] = {
   "marking option out of range (0, 1 or 2)",
   "wrong skew format. needs -d v1,v2,v3,v4",
   "Cannot parse device name", /* 15 */
-
+  "needs at least 4 dead time entries: -Y d1,d2,d3,d4[,d5[,d6...]]",
 };
 int emsg(int code) {
   fprintf(stderr,"%s\n",errormessage[code]);
@@ -324,6 +328,9 @@ int emsg(int code) {
 unsigned long long dayoffset_1; /* contains local time in 1/8 nsecs
 				   when starting the timestamp card */
 unsigned long long dayoffset[16]; /* to hold timings */
+unsigned long long lasttime[16]; /* holds last event for a given detector pattern */
+unsigned int ddead[8]; /* dead time correction */
+int deadtimecorrect=0;
 
 struct timeval timerequest_pointer; /*  structure to hold time requeste  */
 
@@ -430,6 +437,7 @@ int process_quads(void *sourcebuffer, int startquad, int endquad) {
     static char formatstring_2[] = "%08x%08x\n";
     int markit=0;     /* for debugging time error */
     unsigned long long current_time;
+    int pattern; /* holds detector pattern */
     
     events = (unsigned int *)sourcebuffer;
     numberofquads = (endquad - startquad) & QUADMASK3 ; /* anticipate roll over*/
@@ -518,15 +526,25 @@ int process_quads(void *sourcebuffer, int startquad, int endquad) {
 		}
 		
 		if(timemode==1) {
+		    pattern=dv&0xf; /* detector pattern */
 		    current_time = (((unsigned long long)cv) << 32) 
 			+ (unsigned long long)dv
 			/* correction for time skew of individual detectors */ 
-			+ dayoffset[dv&0xf];
-		    
-		    outbuf[j].cv=(unsigned int) (current_time >> 32);  
-		    outbuf[j].dv=(unsigned int) (current_time & 0xffffffff);
-		} 
-		else{
+			+ dayoffset[pattern];
+		    if (!deadtimecorrect) {
+			outbuf[j].cv=(unsigned int) (current_time >> 32);  
+			outbuf[j].dv=(unsigned int) (current_time & 0xffffffff);
+		    } else {
+			if (current_time-lasttime[pattern] > ddead[pattern]) {
+			    lasttime[pattern]=current_time;
+			    outbuf[j].cv=(unsigned int) (current_time >> 32);  
+			    outbuf[j].dv=(unsigned int) (current_time & 0xffffffff);
+			} else {
+			    lasttime[pattern]=current_time;
+			    continue; /* next element in for loop */
+			}
+		    }
+		} else {
 		    outbuf[j].cv=cv; outbuf[j].dv=dv;
 		}
 		/* keep track of movin difference */
@@ -552,13 +570,13 @@ int process_quads(void *sourcebuffer, int startquad, int endquad) {
 		j++;
 		
 		/* check if max event mechanism is active */
-	    if (maxevents) {
-		currentevents++;
-		if (currentevents==maxevents) {
-		    terminateflag=1;
-		    return numberofquads;
+		if (maxevents) {
+		    currentevents++;
+		    if (currentevents==maxevents) {
+			terminateflag=1;
+			return numberofquads;
+		    }
 		}
-	    }
 	    }
 	    
 	/* dump event */
@@ -681,7 +699,7 @@ int main(int argc, char *argv[]) {
     /* --------parsing arguments ---------------------------------- */
     
     opterr=0; /* be quiet when there are no options */
-    while ((opt=getopt(argc, argv, "t:q:rRAa:v:s:c:j:p:FiexS:m:d:D:uU:")) != EOF) {
+    while ((opt=getopt(argc, argv, "t:q:rRAa:v:s:c:j:p:FiexS:m:d:D:uU:Y:")) != EOF) {
 	switch(opt) {
 	    case 'v': /* set verbosity level */
 		sscanf(optarg,"%d",&verbosity_level);
@@ -773,6 +791,16 @@ int main(int argc, char *argv[]) {
 		if (1!=sscanf(optarg,"%199s",usbtimetag_devicename))
 		    return -emsg(15);
 	        usbtimetag_devicename[199]=0;
+		break;
+ 	    case 'Y': /* add artificial dead time to detectors*/
+		i=sscanf(optarg,"%u,%u,%u,%u,%u,%u,%u,%u",
+			 &ddead[0],&ddead[1],&ddead[2],&ddead[3],
+			 &ddead[4],&ddead[5],&ddead[6],&ddead[7] );
+		if (i<4) return -emsg(16);
+		while (i<8) {
+		    ddead[i]=0;i++;
+		}
+		deadtimecorrect=1;
 		break;
 	    default:
 		fprintf(stderr,"usage not correct. see source code.\n");
