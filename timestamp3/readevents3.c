@@ -28,7 +28,7 @@
    processing to the data. Configuration happens by commandline options.
 
    version for usb card....first attempt 17.12.06chk
-   status: version as of 15.7.19 chk
+   status: version as of 18.7.19 chk
  
    output is directed to stdout in a configurable form, and data acquisition
    is controlled via some signals.
@@ -169,6 +169,7 @@
    - some cleanup, propagated indexin into out options 3,4,5  25.2.08chk
    - cleanup of usb flush option call
    - added forced dead times for detectors with -Y option 15.7.19chk
+   - hopefully fixed dead time correction 18.7.19chk
 
 
    ToDo:
@@ -220,8 +221,8 @@
 #define DEFAULT_TRAPMODE 0 /* no trapping of spurious events */
 #define DEFAULT_SKIPNUM 0 /* forget no entries at beginning */
 #define DEFAULT_MARKOPT 0 /* marking option to phasepattern */
-#define DEFAULT_SKEWCORRECT 0 /* no skew correction, 1: 4 detectors,
-				 2: 8 detectors */
+//#define DEFAULT_SKEWCORRECT 0 /* no skew correction, 1: 4 detectors,
+//				 2: 8 detectors */
 
 /* some global variables */
 int outmode=DEFAULT_OUTMODE;
@@ -329,7 +330,8 @@ unsigned long long dayoffset_1; /* contains local time in 1/8 nsecs
 				   when starting the timestamp card */
 unsigned long long dayoffset[16]; /* to hold timings */
 unsigned long long lasttime[16]; /* holds last event for a given detector pattern */
-unsigned int ddead[8]; /* dead time correction */
+unsigned int ddeadpatt[16]; /* dead time correction, indexed by pattern */
+char patt2det[16]={-1,0,1,4, 2,-1,5,-1, 3,7,-1,-1, 6,-1,-1,-1}; /* translation table patt->det */
 int deadtimecorrect=0;
 
 struct timeval timerequest_pointer; /*  structure to hold time requeste  */
@@ -535,7 +537,7 @@ int process_quads(void *sourcebuffer, int startquad, int endquad) {
 			outbuf[j].cv=(unsigned int) (current_time >> 32);  
 			outbuf[j].dv=(unsigned int) (current_time & 0xffffffff);
 		    } else {
-			if (current_time-lasttime[pattern] > ddead[pattern]) {
+			if (current_time-lasttime[pattern] > ddeadpatt[pattern]) {
 			    lasttime[pattern]=current_time;
 			    outbuf[j].cv=(unsigned int) (current_time >> 32);  
 			    outbuf[j].dv=(unsigned int) (current_time & 0xffffffff);
@@ -690,12 +692,19 @@ int main(int argc, char *argv[]) {
     int coinc_value = DEFAULT_COINC;
     int phase_patt = DEFAULT_PHASEPATT;
     int clocksource = DEFAULT_CLOCKSOURCE;
-    int skewcorrectmode = DEFAULT_SKEWCORRECT;
-    int dskew[8], i; /* for skew correction */
+    //int skewcorrectmode = DEFAULT_SKEWCORRECT;
+    int dskew[8]; /* for detector skew correction, indexed by detector number */
+    unsigned int ddead[8]; /* dead time correction, indexed by detector number */
+    int i,j;
     int USBflushmode=0;  /* to toggle the flush mode of the firmware */
     int USBflushoption=0; /* indicates activated flush option */
     int usberrstat=0;
+
+    /* set skew to zero by default */
+    for (i=0; i<8; i++) dskew[i]=0;
     
+
+
     /* --------parsing arguments ---------------------------------- */
     
     opterr=0; /* be quiet when there are no options */
@@ -772,7 +781,6 @@ int main(int argc, char *argv[]) {
 	    case 'd': /* read in detector skews */
 		if (4!=sscanf(optarg,"%d,%d,%d,%d", &dskew[0],&dskew[1],
 			      &dskew[2],&dskew[3])) return -emsg(14);
-		skewcorrectmode =1;
 		break;
 	    case 'D': /* read in detector skews for 8 detectors */
 		i=sscanf(optarg,"%d,%d,%d,%d,%d,%d,%d,%d",
@@ -782,7 +790,6 @@ int main(int argc, char *argv[]) {
 		while (i<8) {
 		    dskew[i]=0;i++;
 		}
-		skewcorrectmode = 2;
 		break;
 	    case 'u': /* switch on USB flushmode */
 		USBflushoption=1;
@@ -885,20 +892,14 @@ int main(int argc, char *argv[]) {
     controltime_cv=0;controltime_dv=0;controltime_getmeone=0;
     
     dayoffset_1 = my_time();
-    
-    /* prepare dayoffset table for different detectors */
-    for (i=0;i<16;i++) dayoffset[i]=dayoffset_1; /* unchanged */
-    switch (skewcorrectmode) {
-	case 2: /* we have 8 values */
-	    dayoffset[0x3]+=(((long long int) dskew[4])<<15); /* d5, lines 1-2 */
-	    dayoffset[0x6]+=(((long long int) dskew[5])<<15); /* d6, lines 2-3 */
-	    dayoffset[0xc]+=(((long long int) dskew[6])<<15); /* d7, lines 3-4 */
-	    dayoffset[0x9]+=(((long long int) dskew[7])<<15); /* d8, lines 4-1 */
-	    /* continue with the four old ones... */
-	case 1:
-	    for (i=0;i<4;i++) dayoffset[1<<i]+=(((long long int) dskew[i])<<15);
-	    break;
+
+    /* translate detector pattern into dead time index, and detector skew into dayoffset */
+    for (i=0; i<16; i++) {
+	j=patt2det[i];
+	ddeadpatt[i]=(j<0)?0:ddead[j];
+	dayoffset[i]=dayoffset_1+(j<0)?0:(long long int)dskew[j];
     }
+	
     
     setitimer(ITIMER_REAL, &newtimer,NULL);
     
