@@ -2,7 +2,7 @@
                  as a classical communication gateway between the two sides.
 		 Description see below. Version as of 20070101
 
- Copyright (C) 2005-2006 Christian Kurtsiefer, National University
+ Copyright (C) 2005-2006, 2020 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -263,15 +263,19 @@ void atohex(char* target,unsigned int v) {
 
 int main(int argc, char *argv[]) {
     int verbosity = DEFAULT_VERBOSITY;
-    int opt,i,ii,retval; /* general parameters */
+    int opt,i, retval; /* general parameters */
+#ifdef DEBUG
+    int ii;
+#endif
     int typemode[10]={0,0,0,0,0,0,0,0,0,0};
     /* sockets and destination structures */
     int sendskt,recskt,commskt;
+    socklen_t socklen;
     FILE *cmdhandle;
     int portnumber=DEFAULT_PORT; /* defines communication port */
     int msginhandle=0;
     int ercinhandle=0,ercouthandle=0; /* error correction pipes */
-    unsigned int sendsktlen,remotelen;
+    unsigned int remotelen;
     struct sockaddr_in sendadr,recadr,remoteadr;
     struct hostent *remoteinfo; 
     /* file handles */
@@ -395,7 +399,6 @@ int main(int argc, char *argv[]) {
     };
 
     /* client socket for sending data */
-    sendsktlen=strlen(fname[2]);
     sendadr.sin_family = AF_INET;
     remoteinfo=gethostbyname(fname[2]);
     if (!remoteinfo) {
@@ -492,9 +495,9 @@ int main(int argc, char *argv[]) {
 		    retval=select(FD_SETSIZE,(fd_set *)0,
 				  &writequeue,(fd_set *)0,&timeout);
 		    if (retval) {
-			i=sizeof(retval);
+			socklen=sizeof(retval);
 			if (getsockopt(sendskt, SOL_SOCKET,
-				       SO_ERROR,&retval,&i)) return -emsg(38);
+				       SO_ERROR,&retval,&socklen)) return -emsg(38);
 			if (retval) {
 			    /* printf("point2e\n"); */
 			    if (errno==EINPROGRESS) continue;
@@ -749,7 +752,7 @@ int main(int argc, char *argv[]) {
 		fflush(cmdinhandle);
 		strncpy(ftnam,fname[0],FNAMELENGTH-1);
 		ftnam[FNAMELENGTH-1]=0;
-		strncat(ftnam,transfername,FNAMELENGTH);
+		strncat(ftnam,transfername,FNAMELENGTH-1);
 		ftnam[FNAMELENGTH-1]=0;
 #ifdef DEBUG
 		fprintf(debuglog,"transfername: >>%s<<\n",ftnam);fflush(debuglog);
@@ -902,7 +905,6 @@ int main(int argc, char *argv[]) {
 	    sendskt=socket(AF_INET,SOCK_STREAM,0); /* outgoing packets */
 	    if (!sendskt) return -emsg(16);
 	    /* client socket for sending data */
-	    sendsktlen=strlen(fname[2]);
 	    sendadr.sin_family = AF_INET;
 	    remoteinfo=gethostbyname(fname[2]);
 	    if (!remoteinfo) {
