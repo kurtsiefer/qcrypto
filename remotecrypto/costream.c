@@ -1064,7 +1064,7 @@ int main (int argc, char *argv[]) {
     unsigned int *pointer2=NULL; /* for parsing stream-2 */
     int idx2=0,resbits2=0,type2bitwidth=0,type2datawidth=0; /* for buffer2 */
     int bitstoread2=0;
-    int emergency_break,pattern2=0,opatt2;
+    int pattern2=0,opatt2;
     unsigned long long tdiff_bitmask2=0,patternmask2=0;
     unsigned int tdiff2,readword2=0;
 
@@ -1462,8 +1462,8 @@ int main (int argc, char *argv[]) {
 		bitstoread2=type2bitwidth+type2datawidth; /* has to be <32 */
 		tdiff_bitmask2 = (1<<type2bitwidth)-1; /* for unpacking */
 		patternmask2 = (1<<type2datawidth)-1;
-		emergency_break=
-		    (realsize2-sizeof(struct header_2))/sizeof(unsigned int);
+		//emergency_break=
+		//    (realsize2-sizeof(struct header_2))/sizeof(unsigned int);
 		ecnt2=0;/* count local events */
 
 		/* prepare new stream 3 and 4 */
