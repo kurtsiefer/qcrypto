@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
     int realsize2;
     unsigned int *pointer2;
     unsigned long long intime;
-    int i,j,k,resbits,bitstoread2,emergency_break;
+    int j,k,resbits,bitstoread2,emergency_break;
     unsigned int tdiff,readword,tdiff_bitmask,patternmask,opatt;
     int pattern;
     int type2bitwidth,type2datawidth; /* for decompression */
@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
 
     printf("entries: %d, bitwidth: %d\n",head2.length, head2.timeorder);
 
-    i=0; /* standard epoch */
+    /* standard epoch */
 
     /* running decompressor */
 	pointer2=(unsigned int *)(buffer+sizeof(struct header_2));
