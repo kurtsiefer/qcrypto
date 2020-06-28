@@ -895,9 +895,9 @@ int main(int argc, char *argv[]) {
 
     /* translate detector pattern into dead time index, and detector skew into dayoffset */
     for (i=0; i<16; i++) {
-	j=patt2det[i];
-	ddeadpatt[i]=(j<0)?0:(ddead[j]<<15); /* correct position of time shift */
-	dayoffset[i]=dayoffset_1+(j<0)?0:(long long int)dskew[j];
+    	j=patt2det[i];
+    	ddeadpatt[i]=(j<0)?0:(ddead[j]<<15); /* correct position of time shift */
+    	dayoffset[i]=dayoffset_1+((j<0)?0:(long long int)dskew[j]);
     }
 	
     
