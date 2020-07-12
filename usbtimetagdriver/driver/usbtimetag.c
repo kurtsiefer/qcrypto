@@ -1,7 +1,7 @@
 /* usbtimetag.c:  This is the device driver for the timetag unit, in
                    its version with a USB interface. Version as of 20090810.
 
- Copyright (C) 2006-2009, 2018 Christian Kurtsiefer, National University
+ Copyright (C) 2006-2009, 2018, 2020 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -100,6 +100,15 @@
 #define HAS_LEAN_VM_FAULT 
 #endif
 
+/* newer kernel versions: vm_fault_t is defined */
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,17,0))
+#define HAS_VM_FAULT_TYPE
+#endif
+
+/* make vm_fault_t to int as in older kernels */
+#ifndef HAS_VM_FAULT_TYPE
+#define vm_fault_t int
+#endif
 
 /* fix missing page count command in kernel version >2.6.13 or so */
 #ifndef HAS_SET_PAGE_COUNT
@@ -508,10 +517,10 @@ static void usbdev_vm_close(struct  vm_area_struct * area) {
 /*************************** transition code *************/
 #ifdef HAS_FAULT_METHOD      /* new fault() code */
 #ifdef HAS_LEAN_VM_FAULT
-static int usbdev_vm_fault(struct vm_fault *vmf) {
+static vm_fault_t usbdev_vm_fault(struct vm_fault *vmf) {
     struct cardinfo *cp = (struct cardinfo *)vmf->vma->vm_private_data;
 #else
-static int usbdev_vm_fault(struct vm_area_struct *area, struct vm_fault *vmf) {
+static vm_fault_t usbdev_vm_fault(struct vm_area_struct *area, struct vm_fault *vmf) {
     struct cardinfo *cp = (struct cardinfo *)area->vm_private_data;
 #endif
     unsigned long ofs = (vmf->pgoff << PAGE_SHIFT); /* should be addr_t ? */
@@ -719,10 +728,12 @@ static long usbdev_flat_ioctl(struct file *filp, unsigned int cmd, unsigned long
 	case SetWarningwatermark:
 	    data[3]=(arg>>8) & 0xff; /* MSbyte */
 	    len++; chksum+=data[3];
+	    //fall through
 	case Rf_Reference: case Autoflush: /* one-byte parameter urbs */
 	case RequestStatus: case WriteBootEEPROM:
 	    data[2]=arg & 0xff; /* LSbyte */
 	    len++; chksum+=data[2];
+	    //fall through
 	case Reset_Timestampcard: case InitDac: case InitializeRFSRC:
 	case Set_Inhibitline: case Reset_Inhibitline: case Set_calibration:
 	case Clear_Calibration: case Initialize_FIFO: case Stop_nicely:
