@@ -30,6 +30,9 @@ transferd: transferd.c
 getrate: getrate.c
 	gcc -Wall -O3 -o  getrate getrate.c
 
+getrate2: getrate2.c
+	gcc -Wall -O3 -o  getrate2 getrate2.c
+
 clean:
 	rm -f chopper
 	rm -f chopper2
