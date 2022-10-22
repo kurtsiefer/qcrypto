@@ -43,9 +43,9 @@
                  forever. default is evts = 1. 
 
    -s :          split detector results. If this option is set, four colums
-                 corresponding to individual detector events are given, plus a
-		 fifth one for the overall events (can be lower than sum of 4
-		 due to coincidences). Switched off by default.
+                 corresponding to individual detector events are given,
+		 preceeded by a columb for the overall events (can be lower
+		 than sum of 4 due to coincidences). Switched off by default.
    -6 :          same as -s option, but with 6 detectors, where the two
                  additional ones are identified by 1-2 and 2-3 coincidences
    -8 :          same as -6 option, but with two more detectors corresponding
@@ -54,9 +54,66 @@
                  incremented if there is a coincidence event, e.g., a 
 		 coincidence event between detectors 1 and 2 contributes also to
 		 singles 1 and 2 if this option is set; otherwise, it does not
-		 contribute to the singles.
-   -b :          separate specially marked events in second set of columns.
+		 contribute to the singles. The sum of the indiviudal detector
+		 events may be larger than the total event number, as events
+		 containing more than one input line active contribute only as
+		 a single event to the total counts.
+   -b :          separate specially marked events in bit 5 of the event pattern
+                 in different columns. When used alone, it generates two
+		 columns, one for total events without the bit 5 marker set,
+		 one for total events with the bit 5 marker set. If this option
+		 is used together with the -s option, it generates additional
+		 four columns with individual detector events without the bit 5
+		 marker, and another four columns for individual detector events
+		 with the bit 5 marker set. Also, this option can be used
+		 together with the -c option, such that no interference or
+		 coincidences between detectors are affecting individual
+		 detector events.
 
+   Examples for putput options: 
+   1. getrate2   (no options)
+      This generates a single number per row, reflecting the total registered
+      events. 
+   2. getrate2 -s 
+      This generates five columns, the first one for the total events as in
+      the example above, and four more columns where exactly one input line
+      is active. This means, events that contain e.g. an event with both lines
+      1 and 2 active at the same time (i.e., a coincidence event) will
+      contribute to column 0, but not to column 1 and not to column 2.
+   3. getrate2 -s -c
+      This generates five columns, like with the simple -s option, but the four
+      columns for individual events will this time be corrected for
+      coincidences. Thus, an event with both lines 1 and 2 on for an event will
+      contribute to column 0 (for total events), and to column 1 as well as to
+      column 2. Thus, the columns 1 and 2 represent the traditional "single"
+      events for input lines, and the sum of these events can be larger than
+      the number reported in column 0 which represents the total event patterns
+      received.
+   4. getrate2 -b
+      This generates two columns per time window, one for the total registered
+      events without the bit 5 marked in the event pattern, and one for the
+      total event patterns with the bit 5 marker set. This basicallys splits
+      the events reported without an option into two classes, one with the bit5
+      marker not set, and one with the bit5 marker set.
+   5. getrate2 -b -s
+      This generates ten columns per time window. The first two are for total
+      event patterns without and with the bit5 marker set, as with a call only
+      with the -b option. The next four colums report events where no bit5
+      marker is present, and exactly one of the input lines 1..4 is set. This
+      is similar to the last four columns if the -s option is called. Then,
+      another four columns are generated which count the events where the bit5
+      marker is set, and exactly one of the four input lines 1..4 is set.
+   6. getrate2 -b -s -c
+      This is a combination that generates 10 columns, with the first two
+      counting event patterns without and with the bit5 marker cleared, like
+      with the option -b. Then, the next four colums contain the number of
+      events with detector lines 1...4 set. The count of each of these columns
+      is constant even if other input lines are set as well in this event. This
+      means, the columns represent the "single" events seen by each input line,
+      when the marker bit5 is not set. The last four columns the count events
+      where both the bit5 marker is set, and the respective input line is set.
+      This represents "single" events for each detector line where the marker
+      bit is set.
 
   History: 
   started to work sometime.
@@ -73,6 +130,7 @@
   merged in the coincidence correction option  21.7.09chk
   added version that separates specially marked events with -b option,
    and cleaned up decision making process 15.8.2022chk
+  added documentation for -b modes 22.10.2022chk
   
 */
 
