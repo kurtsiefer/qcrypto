@@ -621,11 +621,12 @@ static int usbdev_mmap(struct file * file, struct vm_area_struct *vma) {
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3,7,0)
     vma->vm_flags |= VM_RESERVED; /* to avoid swapping ?*/
-#ifdef HAS_FAULT_METHOD
     vma->vm_flags |= VM_CAN_NONLINEAR; /* has fault method; do we need more? */
-#endif
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6,2,0)
     vma->vm_flags |= VM_IO | VM_DONTEXPAND;/* replaces obsoleted VM_RESERVED */
+#else
+    /* write-protected flags as of kernel 6.2? */
+    vm_flags_set(vma, VM_IO | VM_DONTEXPAND);/* replaces VM_RESERVED */
 #endif
     /* populate the urbs - perhaps this should go to an ioctl starting
        the engine ? */
@@ -728,12 +729,14 @@ static long usbdev_flat_ioctl(struct file *filp, unsigned int cmd, unsigned long
 	case SetWarningwatermark:
 	    data[3]=(arg>>8) & 0xff; /* MSbyte */
 	    len++; chksum+=data[3];
-	    //fall through
+	    goto fallthrough1;
+    fallthrough1:
 	case Rf_Reference: case Autoflush: /* one-byte parameter urbs */
 	case RequestStatus: case WriteBootEEPROM:
 	    data[2]=arg & 0xff; /* LSbyte */
 	    len++; chksum+=data[2];
-	    //fall through
+	    goto fallthrough2;
+    fallthrough2:
 	case Reset_Timestampcard: case InitDac: case InitializeRFSRC:
 	case Set_Inhibitline: case Reset_Inhibitline: case Set_calibration:
 	case Clear_Calibration: case Initialize_FIFO: case Stop_nicely:
