@@ -3,7 +3,7 @@
 		 matrix from t3 files. Description see below
 		 Version as of 20070101
 
- Copyright (C) 2005-2006 Christian Kurtsiefer, National University
+ Copyright (C) 2005-2006,2024 Christian Kurtsiefer, National University
                          of Singapore <christian.kurtsiefer@gmail.com>
 
  This source code is free software; you can redistribute it and/or
@@ -22,15 +22,25 @@
 
 --
    this program digests a service file, and outputs a correlation matrix
-   together with some service parameters 
-   
-   usage: diagnosis [-q] servicefile
+   together with some service parameters.
 
-   the program ejects various informations extracted from the service files
+   This version includes combinations for the device-independent case with
+   six detectors, mapped onto four event lines.
+   
+   usage: diagnosis [-q] -f servicefile [-s]
+
+   The program ejects various informations extracted from the service files
    and displays it in a formatted version. If the -q option is set, the program
    does not do any formatting but outputs the information in a single line.
 
-   
+   Normally, the high nibble contains the 6-detector result, the low nibble
+   the four-detector result.  If the -s option is active, the bit contents
+   are flipped, i.e., the low nibble is 6-detector and the high nibble the
+   4-detector result.
+
+   This is an adaption to take the filename as the -f option rather than an
+   unindexed argument, following the custom used in the bell demo kit (an
+   option that went into the code in 7.7.2024.
 
 */
 
@@ -84,7 +94,8 @@ int emsg(int code) {
   return code;
 };
 
-int decode[16]={-1,0,1,-1,   2,-1,-1,-1,  3,-1,-1,-1,  -1,-1,-1,-1};
+/* this decode table contains 6-detector events */
+int decode[16]={-1,0,1,4,   2,-1,5,-1,  3,-1,-1,-1,  -1,-1,-1,-1};
 
 int main (int argc, char *argv[]) {
     char fname[FNAMELENGTH]={""}; /* stream files */
@@ -93,28 +104,35 @@ int main (int argc, char *argv[]) {
     struct header_3 *h;
     int bytenum;
     unsigned int ui;
-    int histo[16]; /* for keeping tyhe histogram */
-    int garbage1, garbage2, total, okcount,a,b;
-    char detlabel[5]="V-H+";
+    int histo[24]; /* for keeping tyhe histogram */
+    int garbage1, garbage2, total, okcount,a,b,c;
+    char detlabel[7]="V-H+KL";
     int opt;
     int outmode = DEFAULT_OUTMODE; /* 0: formatted, 1: unformatted */
+    int swapmode = 0; /* 0: normal order, 1: 6det is on low nibble */
 
     /* parsing option */
     opterr=0;
-    while ((opt=getopt(argc, argv, "q"))!= EOF) {
+    while ((opt=getopt(argc, argv, "qsf:"))!= EOF) {
 	switch (opt) {
-	    case 'q': /* set quiet option */
+	case 's': /* swap nibbles for sorting */
+	    swapmode=1;
+	    break;
+	case 'q': /* set quiet option */
 		outmode = 1;
-		break;
+	    break;
+	case 'f': /* get file name */
+	    if (1!=sscanf(optarg,FNAMFORMAT,fname))  {
+		fprintf(stderr,"idx: %d filename: >%s<",optind,argv[optind]);
+		return -emsg(1);
+	    }
+	    break;
 	}
     }
 
     /* get buffer*/
     if (!(buffer3i=(char*)malloc(RAW3i_SIZE))) return -emsg(2);
 
-    /* get filename*/
-    if (1!=sscanf(argv[optind],FNAMFORMAT,fname)) return -emsg(1);
-    
     /* get file */
     handle=open(fname,O_RDONLY);
     if (-1==handle) return -emsg(3);
@@ -140,19 +158,19 @@ int main (int argc, char *argv[]) {
 
     /* prepare histogram */
     inpointer=(char *)(buffer3i+sizeof(struct header_3));
-    for (ui=0;ui<16;ui++) histo[ui]=0;
+    for (ui=0;ui<24;ui++) histo[ui]=0;
     
     /* fill histo */
     garbage1=0;garbage2=0;okcount=0;total=h->length;
     for (ui=0;ui<h->length;ui++) {
 	b=decode[inpointer[ui]&0xf]; /* bob */
 	a=decode[(inpointer[ui]>>4)&0xf]; /* alice */
-	if (a<0) garbage1++;
-	if (b<0) garbage2++;
-	if ((a>=0) && (b>=0)) {
-	    histo[a*4+b]++;
-	    okcount++;
-	}
+	if (swapmode) {c=a;a=b;b=c;} /* do swap */
+	if (a<0)            { garbage1++; continue; }
+	if ((b<0) || (b>3)) { garbage2++; continue; }
+	/* legal coincidence events */
+	histo[a*4+b]++;
+	okcount++;
     }
     
     switch (outmode) {
@@ -161,7 +179,7 @@ int main (int argc, char *argv[]) {
 	    printf("det2:       V       -       H       +  \n");
 	    printf("-------------------------------------\n");
 	    
-	    for (a=0;a<4;a++) {
+	    for (a=0;a<6;a++) {
 		printf("det1= %c | %5d   %5d   %5d   %5d\n",
 		       detlabel[a],histo[4*a],histo[4*a+1],histo[4*a+2],
 		       histo[4*a+3]);
@@ -171,7 +189,7 @@ int main (int argc, char *argv[]) {
 		   okcount,total, garbage1,garbage2);
 	    break;
 	case 1: /* only one line */
-	    for (a=0;a<16;a++) printf("%d ",histo[a]); /* det histogram */
+	    for (a=0;a<24;a++) printf("%d ",histo[a]); /* det histogram */
 	    printf("%d %d %d %d\n",okcount,total, garbage1,garbage2);
 	    break;
     }
