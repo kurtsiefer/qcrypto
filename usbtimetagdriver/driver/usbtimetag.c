@@ -105,6 +105,13 @@
 #define HAS_VM_FAULT_TYPE
 #endif
 
+/* handle deprecated PAGE_ORDER */
+#ifdef MAX_PAGE_ORDER
+#define MAXPGORDER MAX_PAGE_ORDER
+#else
+#define MAXPGORDER PAGE_ORDER
+#endif
+
 /* make vm_fault_t to int as in older kernels */
 #ifndef HAS_VM_FAULT_TYPE
 #define vm_fault_t int
