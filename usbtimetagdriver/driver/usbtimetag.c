@@ -284,7 +284,7 @@ static int get_dma_buffer(ssize_t size, struct cardinfo *cp) {
     page_order = 4;
     
     /* page_order = get_order(bytes_to_get); */
-    if (page_order >= MAX_ORDER) page_order=MAX_ORDER;
+    if (page_order >= MAXPGORDER) page_order=MAXPGORDER;
     
     while (bytes_to_get>0) {
 	/* shrink size if possible */
