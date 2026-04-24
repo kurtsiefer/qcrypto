@@ -109,7 +109,7 @@
 #ifdef MAX_PAGE_ORDER
 #define MAXPGORDER MAX_PAGE_ORDER
 #else
-#define MAXPGORDER PAGE_ORDER
+#define MAXPGORDER MAX_ORDER
 #endif
 
 /* make vm_fault_t to int as in older kernels */
@@ -217,7 +217,7 @@ typedef struct dma_page_pointer {
 
 
 /* code to manipulate page counters of page blocks */
-void  add_individual_page_counts(void *buffer, unsigned long order) {
+static void  add_individual_page_counts(void *buffer, unsigned long order) {
     int i,orig;
     struct page *spa;
     if (order) {
@@ -228,7 +228,7 @@ void  add_individual_page_counts(void *buffer, unsigned long order) {
 	}
     }	  
 }
-void release_individual_page_counts(void *buffer, unsigned long order) {
+static void release_individual_page_counts(void *buffer, unsigned long order) {
     int i;
     struct page *spa;
     if (order) {
@@ -240,7 +240,7 @@ void release_individual_page_counts(void *buffer, unsigned long order) {
 }
 
 /* release code for the DMA buffer and the DMA buffer pointer */
-void release_dma_buffer(struct cardinfo *cp){
+static void release_dma_buffer(struct cardinfo *cp){
     struct dma_page_pointer *currbuf, *tmpbuf;
     
     /* only one buffer to free... */
@@ -284,7 +284,7 @@ static int get_dma_buffer(ssize_t size, struct cardinfo *cp) {
     page_order = 4;
     
     /* page_order = get_order(bytes_to_get); */
-    if (page_order >= MAXPGORDER) page_order=MAXPGORDER;
+    if (page_order >= MAXPGORDER ) page_order= MAXPGORDER;
     
     while (bytes_to_get>0) {
 	/* shrink size if possible */
